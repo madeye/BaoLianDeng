@@ -1,6 +1,7 @@
 package io.github.baoliandeng.core;
 
 import android.annotation.SuppressLint;
+import io.github.baoliandeng.BuildConfig;
 import io.github.baoliandeng.tcpip.CommonMethods;
 import io.github.baoliandeng.tunnel.Config;
 import io.github.baoliandeng.tunnel.httpconnect.HttpConnectConfig;
@@ -12,7 +13,7 @@ import java.util.regex.Pattern;
 
 public class ProxyConfig {
     public static final ProxyConfig Instance = new ProxyConfig();
-    public final static boolean IS_DEBUG = true;
+    public final static boolean IS_DEBUG = BuildConfig.DEBUG;
     public final static int FAKE_NETWORK_MASK = CommonMethods.ipStringToInt("255.255.0.0");
     public final static int FAKE_NETWORK_IP = CommonMethods.ipStringToInt("26.25.0.0");
     public static String AppInstallID;
