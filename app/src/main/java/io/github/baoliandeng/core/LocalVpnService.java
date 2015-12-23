@@ -185,6 +185,9 @@ public class LocalVpnService extends VpnService implements Runnable {
             writeLog("LocalDnsProxy started.");
 
             Client.Provider.Stub stub = new Client.Provider.Stub() {
+                public boolean Verbose() {
+                    return ProxyConfig.IS_DEBUG;
+                }
                 public String Model() {
                     return model;
                 }
