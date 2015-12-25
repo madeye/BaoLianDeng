@@ -48,8 +48,9 @@ public class ProxyConfig {
         m_DomainMap = new HashMap<String, Boolean>();
 
         m_IpList.add(new IPAddress("26.26.26.2", 32));
-        m_DnsList.add(new IPAddress("114.114.114.114"));
+        m_DnsList.add(new IPAddress("223.5.5.5"));
         m_DnsList.add(new IPAddress("8.8.8.8"));
+        m_DnsList.add(new IPAddress("114.114.114.114"));
 
         Config config = HttpConnectConfig.parse("http://127.0.0.1:8787");
         if (!m_ProxyList.contains(config)) {
