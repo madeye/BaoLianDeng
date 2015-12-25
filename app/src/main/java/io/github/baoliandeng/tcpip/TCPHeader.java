@@ -1,5 +1,6 @@
 package io.github.baoliandeng.tcpip;
 
+import java.util.Locale;
 
 public class TCPHeader {
 
@@ -72,7 +73,7 @@ public class TCPHeader {
     @Override
     public String toString() {
         // TODO Auto-generated method stub
-        return String.format("%s%s%s%s%s%s%d->%d %s:%s",
+        return String.format(Locale.ENGLISH, "%s%s%s%s%s%s%d->%d %s:%s",
                 (getFlags() & SYN) == SYN ? "SYN " : "",
                 (getFlags() & ACK) == ACK ? "ACK " : "",
                 (getFlags() & PSH) == PSH ? "PSH " : "",

@@ -201,9 +201,7 @@ public class LocalVpnService extends VpnService implements Runnable {
                     return "Lantern";
                 }
                 public String SettingsDir() {
-                    File f = getFilesDir();
-                    if (f != null) return f.getPath();
-                    return "/data/data/io.github.baoliandeng";
+                    return getFilesDir().getPath();
                 }
                 public void Protect(long fd) {
                     protect((int) fd);

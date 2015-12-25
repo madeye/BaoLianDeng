@@ -1,5 +1,7 @@
 package io.github.baoliandeng.tcpip;
 
+import java.util.Locale;
+
 public class IPHeader {
 
     public static final short IP = 0x0800;
@@ -121,7 +123,7 @@ public class IPHeader {
 
     @Override
     public String toString() {
-        return String.format("%s->%s Pro=%s,HLen=%d", CommonMethods.ipIntToString(getSourceIP()), CommonMethods.ipIntToString(getDestinationIP()), getProtocol(), getHeaderLength());
+        return String.format(Locale.ENGLISH, "%s->%s Pro=%s,HLen=%d", CommonMethods.ipIntToString(getSourceIP()), CommonMethods.ipIntToString(getDestinationIP()), getProtocol(), getHeaderLength());
     }
 
 }

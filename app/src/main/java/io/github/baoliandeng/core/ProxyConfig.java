@@ -9,6 +9,7 @@ import io.github.baoliandeng.tunnel.httpconnect.HttpConnectConfig;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 public class ProxyConfig {
@@ -114,7 +115,7 @@ public class ProxyConfig {
     }
 
     private Boolean getDomainState(String domain) {
-        domain = domain.toLowerCase();
+        domain = domain.toLowerCase(Locale.ENGLISH);
         while (domain.length() > 0) {
             Boolean stateBoolean = m_DomainMap.get(domain);
             if (stateBoolean != null) {
@@ -174,10 +175,9 @@ public class ProxyConfig {
             this.PrefixLength = prefixLength;
         }
 
-        @SuppressLint("DefaultLocale")
         @Override
         public String toString() {
-            return String.format("%s/%d", Address, PrefixLength);
+            return String.format(Locale.ENGLISH, "%s/%d", Address, PrefixLength);
         }
 
         @Override
