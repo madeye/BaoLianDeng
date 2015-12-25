@@ -99,7 +99,7 @@ public class ProxyConfig {
 
     public void resetDomain(String[] items) {
         m_DomainMap.clear();
-        addDomainToHashMap(items, 0, false);
+        addDomainToHashMap(items, 0, true);
     }
 
     private void addDomainToHashMap(String[] items, int offset, Boolean state) {
@@ -135,6 +135,8 @@ public class ProxyConfig {
             Boolean stateBoolean = getDomainState(host);
             if (stateBoolean != null) {
                 return stateBoolean.booleanValue();
+            } else {
+                return false;
             }
         }
 

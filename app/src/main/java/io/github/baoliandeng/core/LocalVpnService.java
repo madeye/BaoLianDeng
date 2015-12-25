@@ -350,7 +350,7 @@ public class LocalVpnService extends VpnService implements Runnable {
             builder.addDnsServer(dns.Address);
         }
 
-        ProxyConfig.Instance.resetDomain(getResources().getStringArray(R.array.white_list));
+        ProxyConfig.Instance.resetDomain(getResources().getStringArray(R.array.black_list));
 
         for (String routeAddress : getResources().getStringArray(R.array.bypass_private_route)) {
             String[] addr = routeAddress.split("/");
