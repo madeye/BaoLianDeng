@@ -36,8 +36,8 @@ public class ProxyConfig {
     HashMap<String, Boolean> m_DomainMap;
 
     int m_dns_ttl = 10;
-    String m_welcome_info = "BaoLianDeng";
-    String m_session_name = "BaoLianDeng";
+    String m_welcome_info = Constant.TAG;
+    String m_session_name = Constant.TAG;
     String m_user_agent = System.getProperty("http.agent");
     int m_mtu = 1500;
 
@@ -107,6 +107,7 @@ public class ProxyConfig {
     private void addDomainToHashMap(String[] items, int offset, Boolean state) {
         for (int i = offset; i < items.length; i++) {
             String domainString = items[i].toLowerCase().trim();
+            if (domainString.length() == 0) continue;
             if (domainString.charAt(0) == '.') {
                 domainString = domainString.substring(1);
             }

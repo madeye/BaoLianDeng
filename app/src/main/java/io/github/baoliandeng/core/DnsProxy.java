@@ -38,17 +38,22 @@ public class DnsProxy implements Runnable {
         return IPDomainMaps.get(ip);
     }
 
-    public void start() {
+    public synchronized void start() {
         m_ReceivedThread = new Thread(this);
         m_ReceivedThread.setName("DnsProxyThread");
         m_ReceivedThread.start();
     }
 
-    public void stop() {
+    public synchronized void stop() {
         Stopped = true;
         if (m_Client != null) {
-            m_Client.close();
-            m_Client = null;
+            try {
+                m_Client.close();
+            } catch (Exception e) {
+                Log.e(Constant.TAG, "Exception when closing m_Client", e);
+            } finally {
+                m_Client = null;
+            }
         }
     }
 
@@ -79,14 +84,13 @@ public class DnsProxy implements Runnable {
                         OnDnsResponseReceived(ipHeader, udpHeader, dnsPacket);
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    LocalVpnService.Instance.writeLog("Parse dns error: %s", e);
+                    Log.e(Constant.TAG, "Exception when reading DNS packet", e);
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(Constant.TAG, "Exception in DnsResolver main loop", e);
         } finally {
-            Log.d("BaoLianDeng", "DnsResolver Thread Exited.");
+            Log.d(Constant.TAG, "DnsResolver Thread Exited.");
             this.stop();
         }
     }
@@ -144,7 +148,7 @@ public class DnsProxy implements Runnable {
                     int fakeIP = getOrCreateFakeIP(question.Domain);
                     tamperDnsResponse(rawPacket, dnsPacket, fakeIP);
                     if (ProxyConfig.IS_DEBUG)
-                        Log.d("BaoLianDeng", "FakeDns: " +
+                        Log.d(Constant.TAG, "FakeDns: " +
                                 question.Domain + " " +
                                 CommonMethods.ipIntToString(realIP) + " " +
                                 CommonMethods.ipIntToString(fakeIP));
@@ -193,7 +197,7 @@ public class DnsProxy implements Runnable {
         Question question = dnsPacket.Questions[0];
 
         if (ProxyConfig.IS_DEBUG)
-            Log.d("BaoLianDeng", "DNS Qeury " + question.Domain);
+            Log.d(Constant.TAG, "DNS Qeury " + question.Domain);
 
         if (question.Type == 1) {
             if (ProxyConfig.Instance.needProxy(question.Domain, getIPFromCache(question.Domain))) {
@@ -201,7 +205,7 @@ public class DnsProxy implements Runnable {
                 tamperDnsResponse(ipHeader.m_Data, dnsPacket, fakeIP);
 
                 if (ProxyConfig.IS_DEBUG)
-                    Log.d("BaoLianDeng", "interceptDns FakeDns: " +
+                    Log.d(Constant.TAG, "interceptDns FakeDns: " +
                             question.Domain + " " +
                             CommonMethods.ipIntToString(fakeIP));
 
@@ -256,10 +260,10 @@ public class DnsProxy implements Runnable {
                 if (LocalVpnService.Instance.protect(m_Client)) {
                     m_Client.send(packet);
                 } else {
-                    Log.e("BaoLianDeng", "VPN protect udp socket failed.");
+                    Log.e(Constant.TAG, "VPN protect udp socket failed.");
                 }
             } catch (IOException e) {
-                Log.e("BaoLianDeng", "protect", e);
+                Log.e(Constant.TAG, "protect", e);
             }
         }
     }

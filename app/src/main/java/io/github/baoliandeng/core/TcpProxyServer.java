@@ -28,32 +28,34 @@ public class TcpProxyServer implements Runnable {
         m_ServerSocketChannel.socket().bind(new InetSocketAddress(port));
         m_ServerSocketChannel.register(m_Selector, SelectionKey.OP_ACCEPT);
         this.Port = (short) m_ServerSocketChannel.socket().getLocalPort();
-        Log.d("BaoLianDeng", "AsyncTcpServer listen on " + (this.Port & 0xFFFF));
+        Log.d(Constant.TAG, "AsyncTcpServer listen on " + (this.Port & 0xFFFF));
     }
 
-    public void start() {
+    public synchronized void start() {
         m_ServerThread = new Thread(this);
         m_ServerThread.setName("TcpProxyServerThread");
         m_ServerThread.start();
     }
 
-    public void stop() {
+    public synchronized void stop() {
         this.Stopped = true;
         if (m_Selector != null) {
             try {
                 m_Selector.close();
-                m_Selector = null;
             } catch (Exception e) {
-                e.printStackTrace();
+                Log.e(Constant.TAG, "Exception when closing m_Selector", e);
+            } finally {
+                m_Selector = null;
             }
         }
 
         if (m_ServerSocketChannel != null) {
             try {
                 m_ServerSocketChannel.close();
-                m_ServerSocketChannel = null;
             } catch (Exception e) {
-                e.printStackTrace();
+                Log.e(Constant.TAG, "Exception when closing m_ServerSocketChannel", e);
+            } finally {
+                m_ServerSocketChannel = null;
             }
         }
     }
@@ -78,17 +80,17 @@ public class TcpProxyServer implements Runnable {
                                 onAccepted(key);
                             }
                         } catch (Exception e) {
-                            Log.d("BaoLianDeng", e.toString());
+                            Log.d(Constant.TAG, e.toString());
                         }
                     }
                     keyIterator.remove();
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(Constant.TAG, "TcpServer", e);
         } finally {
             this.stop();
-            Log.d("BaoLianDeng", "TcpServer thread exited.");
+            Log.d(Constant.TAG, "TcpServer thread exited.");
         }
     }
 
@@ -98,7 +100,7 @@ public class TcpProxyServer implements Runnable {
         if (session != null) {
             if (ProxyConfig.Instance.needProxy(session.RemoteHost, session.RemoteIP)) {
                 if (ProxyConfig.IS_DEBUG)
-                    Log.d("BaoLianDeng", String.format("%d/%d:[PROXY] %s=>%s:%d", NatSessionManager.getSessionCount(),
+                    Log.d(Constant.TAG, String.format("%d/%d:[PROXY] %s=>%s:%d", NatSessionManager.getSessionCount(),
                             Tunnel.SessionCount, session.RemoteHost,
                             CommonMethods.ipIntToString(session.RemoteIP), session.RemotePort & 0xFFFF));
                 return InetSocketAddress.createUnresolved(session.RemoteHost, session.RemotePort & 0xFFFF);

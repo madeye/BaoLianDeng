@@ -5,10 +5,8 @@ An android client for Lantern, based on SmartProxy.
 # Build 
 
 ```
-export STORE_FILE=/path/to/your/keystore
-export STORE_PASSWORD=store_password
-export KEY_ALIAS=key_alias
-export KEY_PASSWORD=key_password
+cp local.properties.example local.properties
+edit local.properties
 ./gradlew build
 ```
 

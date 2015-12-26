@@ -96,7 +96,7 @@ public class HttpHostHeaderParser {
                     if (offset + length > limit) return null;
                     String serverName = new String(buffer, offset, length);
                     if (ProxyConfig.IS_DEBUG)
-                        Log.d("BaoLianDeng", "SNI: " + serverName);
+                        Log.d(Constant.TAG, "SNI: " + serverName);
                     return serverName;
                 } else {
                     offset += length;

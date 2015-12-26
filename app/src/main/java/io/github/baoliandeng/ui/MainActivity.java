@@ -22,6 +22,7 @@ import android.support.v7.widget.Toolbar;
 
 import io.github.baoliandeng.R;
 import io.github.baoliandeng.core.LocalVpnService;
+import io.github.baoliandeng.core.Constant;
 
 import java.io.File;
 import java.util.Calendar;
@@ -109,7 +110,7 @@ public class MainActivity extends ActionBarActivity implements
                 mCalendar.get(Calendar.SECOND),
                 logString);
 
-        Log.d("BaoLianDeng", logString);
+        Log.d(Constant.TAG, logString);
 
         if (textViewLog.getLineCount() > 200) {
             textViewLog.setText("");

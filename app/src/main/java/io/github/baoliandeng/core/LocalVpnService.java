@@ -9,8 +9,12 @@ import android.content.pm.PackageManager;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.Response;
 import go.client.Client;
 import io.github.baoliandeng.R;
 import io.github.baoliandeng.core.ProxyConfig.IPAddress;
@@ -21,7 +25,6 @@ import io.github.baoliandeng.tcpip.TCPHeader;
 import io.github.baoliandeng.tcpip.UDPHeader;
 import io.github.baoliandeng.ui.MainActivity;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -29,7 +32,6 @@ import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-
 
 public class LocalVpnService extends VpnService implements Runnable {
 
@@ -58,6 +60,7 @@ public class LocalVpnService extends VpnService implements Runnable {
     private Handler m_Handler;
     private long m_SentBytes;
     private long m_ReceivedBytes;
+    private String[] m_Blacklist;
 
     public LocalVpnService() {
         ID++;
@@ -86,11 +89,6 @@ public class LocalVpnService extends VpnService implements Runnable {
 
     @Override
     public void onCreate() {
-        Log.d("BaoLianDeng", "VPNService created" + ID);
-        // Start a new session by creating a new thread.
-        m_VPNThread = new Thread(this, "VPNServiceThread");
-        m_VPNThread.start();
-
         writeLog("This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.");
         writeLog("This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.");
 
@@ -98,13 +96,37 @@ public class LocalVpnService extends VpnService implements Runnable {
         writeLog("SmartProxy Copyright (C) 2014 hedaode. GPLv3");
         writeLog("Lantern Copyright 2010 Brave New Software Project, Inc. Apache 2.0");
 
+        try {
+            m_TcpProxyServer = new TcpProxyServer(0);
+            m_TcpProxyServer.start();
+            writeLog("LocalTcpServer started.");
+
+            m_DnsProxy = new DnsProxy();
+            m_DnsProxy.start();
+            writeLog("LocalDnsProxy started.");
+        } catch (Exception e) {
+            writeLog("Failed to start TCP/DNS Proxy");
+        }
+
         super.onCreate();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         IsRunning = true;
-        return super.onStartCommand(intent, flags, startId);
+        // Start a new session by creating a new thread.
+        m_VPNThread = new Thread(this, "VPNServiceThread");
+        m_VPNThread.start();
+        return START_NOT_STICKY;
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        String action = intent.getAction();
+        if (action.equals(VpnService.SERVICE_INTERFACE)) {
+            return super.onBind(intent);
+        }
+        return null;
     }
 
     private void onStatusChanged(final String status, final boolean isRunning) {
@@ -140,7 +162,7 @@ public class LocalVpnService extends VpnService implements Runnable {
     }
 
     String getAppInstallID() {
-        SharedPreferences preferences = getSharedPreferences("BaoLianDeng", MODE_PRIVATE);
+        SharedPreferences preferences = getSharedPreferences(Constant.TAG, MODE_PRIVATE);
         String appInstallID = preferences.getString("AppInstallID", null);
         if (appInstallID == null || appInstallID.isEmpty()) {
             appInstallID = UUID.randomUUID().toString();
@@ -165,24 +187,14 @@ public class LocalVpnService extends VpnService implements Runnable {
     @Override
     public synchronized void run() {
         try {
-            Log.d("BaoLianDeng", "VPNService work thread is running... " + ID);
+            Log.d(Constant.TAG, "VPNService work thread is running... " + ID);
 
             ProxyConfig.AppInstallID = getAppInstallID();
             ProxyConfig.AppVersion = getVersionName();
             writeLog("Android version: %s", Build.VERSION.RELEASE);
             writeLog("App version: %s", ProxyConfig.AppVersion);
 
-            ChinaIpMaskManager.loadFromFile(getResources().openRawResource(R.raw.ipmask));
-
             waitUntilPreapred();
-
-            m_TcpProxyServer = new TcpProxyServer(0);
-            m_TcpProxyServer.start();
-            writeLog("LocalTcpServer started.");
-
-            m_DnsProxy = new DnsProxy();
-            m_DnsProxy.start();
-            writeLog("LocalDnsProxy started.");
 
             Client.Provider.Stub stub = new Client.Provider.Stub() {
                 public boolean Verbose() {
@@ -211,43 +223,57 @@ public class LocalVpnService extends VpnService implements Runnable {
             Client.Configure(stub);
             Client.Start(stub);
 
-            Thread.sleep(1000*2);
+            ChinaIpMaskManager.loadFromFile(getResources().openRawResource(R.raw.ipmask));
 
-            while (true) {
-                if (IsRunning) {
-                    runVPN();
-                } else {
-                    Thread.sleep(100);
-                }
+            OkHttpClient client = new OkHttpClient();
+            Request request = new Request.Builder()
+                    .url("https://myhosts.sinaapp.com/blacklist.txt")
+                    .build();
+
+            try {
+                Response response = client.newCall(request).execute();
+                String body = response.body().string();
+                m_Blacklist = body.split("\\r?\\n");
+            } catch (IOException e) {
+                Log.e(Constant.TAG, "Unable to fetch blacklist");
             }
+
+            runVPN();
+
         } catch (InterruptedException e) {
-            Log.e("BaoLianDeng", "Exception", e);
+            Log.e(Constant.TAG, "Exception", e);
         } catch (Exception e) {
             e.printStackTrace();
             writeLog("Fatal error: %s", e.toString());
-        } finally {
-            writeLog("BaoLianDeng terminated.");
-            dispose();
         }
+
+        writeLog("BaoLianDeng terminated.");
+        dispose();
     }
 
     private void runVPN() throws Exception {
         this.m_VPNInterface = establishVPN();
         this.m_VPNOutputStream = new FileOutputStream(m_VPNInterface.getFileDescriptor());
         FileInputStream in = new FileInputStream(m_VPNInterface.getFileDescriptor());
-        int size = 0;
-        while (size != -1 && IsRunning) {
-            while ((size = in.read(m_Packet)) > 0 && IsRunning) {
-                if (m_DnsProxy.Stopped || m_TcpProxyServer.Stopped) {
-                    in.close();
-                    throw new Exception("LocalServer stopped.");
+        try {
+            while (IsRunning) {
+                boolean idle = true;
+                int size = in.read(m_Packet);
+                if (size > 0) {
+                    if (m_DnsProxy.Stopped || m_TcpProxyServer.Stopped) {
+                        in.close();
+                        throw new Exception("LocalServer stopped.");
+                    }
+                    onIPPacketReceived(m_IPHeader, size);
+                    idle = false;
                 }
-                onIPPacketReceived(m_IPHeader, size);
+                if (idle) {
+                    Thread.sleep(100);
+                }
             }
-            Thread.sleep(100);
+        } finally {
+            in.close();
         }
-        in.close();
-        disconnectVPN();
     }
 
     void onIPPacketReceived(IPHeader ipHeader, int size) throws IOException {
@@ -268,7 +294,7 @@ public class LocalVpnService extends VpnService implements Runnable {
                             m_ReceivedBytes += size;
                         } else {
                             if (ProxyConfig.IS_DEBUG)
-                                Log.d("BaoLianDeng", "NoSession: " +
+                                Log.d(Constant.TAG, "NoSession: " +
                                         ipHeader.toString() + " " +
                                         tcpHeader.toString());
                         }
@@ -338,17 +364,19 @@ public class LocalVpnService extends VpnService implements Runnable {
         IPAddress ipAddress = ProxyConfig.Instance.getDefaultLocalIP();
         LOCAL_IP = CommonMethods.ipStringToInt(ipAddress.Address);
 
-        //builder.addDisallowedApplication("io.github.baoliandeng");
-
         builder.addAddress(ipAddress.Address, ipAddress.PrefixLength);
         if (ProxyConfig.IS_DEBUG)
-            Log.d("BaoLianDeng", String.format("addAddress: %s/%d\n", ipAddress.Address, ipAddress.PrefixLength));
+            Log.d(Constant.TAG, String.format("addAddress: %s/%d\n", ipAddress.Address, ipAddress.PrefixLength));
 
         for (ProxyConfig.IPAddress dns : ProxyConfig.Instance.getDnsList()) {
             builder.addDnsServer(dns.Address);
         }
 
-        ProxyConfig.Instance.resetDomain(getResources().getStringArray(R.array.black_list));
+        if (m_Blacklist == null) {
+            m_Blacklist = getResources().getStringArray(R.array.black_list);
+        }
+
+        ProxyConfig.Instance.resetDomain(m_Blacklist);
 
         for (String routeAddress : getResources().getStringArray(R.array.bypass_private_route)) {
             String[] addr = routeAddress.split("/");
@@ -367,7 +395,12 @@ public class LocalVpnService extends VpnService implements Runnable {
         return pfdDescriptor;
     }
 
-    public void disconnectVPN() {
+    private synchronized void dispose() {
+
+        onStatusChanged(ProxyConfig.Instance.getSessionName() + " " + getString(R.string.vpn_disconnected_status), false);
+
+        IsRunning = false;
+
         try {
             if (m_VPNInterface != null) {
                 m_VPNInterface.close();
@@ -376,24 +409,14 @@ public class LocalVpnService extends VpnService implements Runnable {
         } catch (Exception e) {
             // ignore
         }
-        onStatusChanged(ProxyConfig.Instance.getSessionName() + " " + getString(R.string.vpn_disconnected_status), false);
-        this.m_VPNOutputStream = null;
-    }
 
-    private synchronized void dispose() {
-        disconnectVPN();
-
-        // ֹͣTcpServer
-        if (m_TcpProxyServer != null) {
-            m_TcpProxyServer.stop();
-            m_TcpProxyServer = null;
-            writeLog("LocalTcpServer stopped.");
-        }
-
-        if (m_DnsProxy != null) {
-            m_DnsProxy.stop();
-            m_DnsProxy = null;
-            writeLog("LocalDnsProxy stopped.");
+        try {
+            if (m_VPNOutputStream != null) {
+                m_VPNOutputStream.close();
+                m_VPNOutputStream = null;
+            }
+        } catch (Exception e) {
+            // ignore
         }
 
         try {
@@ -402,23 +425,43 @@ public class LocalVpnService extends VpnService implements Runnable {
             // Ignore
         }
 
-        stopSelf();
-        IsRunning = false;
-        System.exit(0);
+        if (m_VPNThread != null) {
+            m_VPNThread.interrupt();
+            m_VPNThread = null;
+        }
+
     }
 
     @Override
     public void onDestroy() {
-        Log.d("BaoLianDeng", "VPNService(%s) destroyed: " + ID);
-        if (m_VPNThread != null) {
-            m_VPNThread.interrupt();
+        Log.d(Constant.TAG, "VPNService(%s) destroyed: " + ID);
+        dispose();
+        try {
+            // ֹͣTcpServer
+            if (m_TcpProxyServer != null) {
+                m_TcpProxyServer.stop();
+                m_TcpProxyServer = null;
+                // writeLog("LocalTcpServer stopped.");
+            }
+        } catch (Exception e) {
+            // ignore
         }
+        try {
+            // DnsProxy
+            if (m_DnsProxy != null) {
+                m_DnsProxy.stop();
+                m_DnsProxy = null;
+                // writeLog("LocalDnsProxy stopped.");
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        super.onDestroy();
     }
 
     public interface onStatusChangedListener {
-        public void onStatusChanged(String status, Boolean isRunning);
-
-        public void onLogReceived(String logString);
+        void onStatusChanged(String status, Boolean isRunning);
+        void onLogReceived(String logString);
     }
 
 }

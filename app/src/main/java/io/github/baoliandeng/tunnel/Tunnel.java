@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.util.Log;
 import io.github.baoliandeng.core.LocalVpnService;
 import io.github.baoliandeng.core.ProxyConfig;
+import io.github.baoliandeng.core.Constant;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -127,7 +128,7 @@ public abstract class Tunnel {
                     if (!m_BrotherTunnel.write(buffer, true)) {
                         key.cancel();
                         if (ProxyConfig.IS_DEBUG)
-                            Log.d("BaoLianDeng", m_ServerEP + "can not read more.");
+                            Log.d(Constant.TAG, m_ServerEP + "can not read more.");
                     }
                 }
             } else if (bytesRead < 0) {
