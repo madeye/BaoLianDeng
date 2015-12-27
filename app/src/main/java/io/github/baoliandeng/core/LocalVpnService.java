@@ -119,7 +119,7 @@ public class LocalVpnService extends VpnService implements Runnable {
         // Start a new session by creating a new thread.
         m_VPNThread = new Thread(this, "VPNServiceThread");
         m_VPNThread.start();
-        return START_NOT_STICKY;
+        return super.onStartCommand(intent, flags, startId);
     }
 
     @Override
@@ -266,8 +266,12 @@ public class LocalVpnService extends VpnService implements Runnable {
                         in.close();
                         throw new Exception("LocalServer stopped.");
                     }
-                    onIPPacketReceived(m_IPHeader, size);
-                    idle = false;
+                    try {
+                        onIPPacketReceived(m_IPHeader, size);
+                        idle = false;
+                    } catch (IOException ex) {
+                        Log.e(Constant.TAG, "IOException when processing IP packet", ex);
+                    }
                 }
                 if (idle) {
                     Thread.sleep(100);
