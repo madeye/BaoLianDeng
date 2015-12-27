@@ -29,6 +29,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -384,6 +386,23 @@ public class LocalVpnService extends VpnService implements Runnable {
         }
 
         builder.addRoute(CommonMethods.ipIntToString(ProxyConfig.FAKE_NETWORK_IP), 16);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            PackageManager packageManager = getPackageManager();
+            List<PackageInfo> list = packageManager.getInstalledPackages(0);
+            HashSet<String> packageSet = new HashSet<>();
+
+            for (int i = 0; i < list.size(); i++) {
+                PackageInfo info = list.get(i);
+                packageSet.add(info.packageName);
+            }
+
+            for (String name : getResources().getStringArray(R.array.bypass_package_name)) {
+                if (packageSet.contains(name)) {
+                    builder.addDisallowedApplication(name);
+                }
+            }
+        }
 
         Intent intent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent, 0);
