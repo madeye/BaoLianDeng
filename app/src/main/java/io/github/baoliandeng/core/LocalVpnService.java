@@ -115,11 +115,12 @@ public class LocalVpnService extends VpnService implements Runnable {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        super.onStartCommand(intent, flags, startId);
         IsRunning = true;
         // Start a new session by creating a new thread.
         m_VPNThread = new Thread(this, "VPNServiceThread");
         m_VPNThread.start();
-        return super.onStartCommand(intent, flags, startId);
+        return START_NOT_STICKY;
     }
 
     @Override
@@ -452,13 +453,12 @@ public class LocalVpnService extends VpnService implements Runnable {
             m_VPNThread.interrupt();
             m_VPNThread = null;
         }
-
     }
 
     @Override
     public void onDestroy() {
         Log.d(Constant.TAG, "VPNService(%s) destroyed: " + ID);
-        dispose();
+        if(IsRunning) dispose();
         try {
             // ֹͣTcpServer
             if (m_TcpProxyServer != null) {
