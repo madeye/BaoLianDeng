@@ -68,4 +68,5 @@ dependencies {
     compile(name:'libflashlight', ext:'aar')
     compile('com.android.support:appcompat-v7:23.+')
     compile('com.squareup.okhttp:okhttp:2.7.0')
+    compile('net.ripe.commons:commons-ip-math:1.22')
 }
