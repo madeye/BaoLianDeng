@@ -142,18 +142,16 @@ public class DnsProxy implements Runnable {
     private boolean dnsPollution(byte[] rawPacket, DnsPacket dnsPacket) {
         if (dnsPacket.Header.QuestionCount > 0) {
             Question question = dnsPacket.Questions[0];
-            if (question.Type == 1) {
-                int realIP = getFirstIP(dnsPacket);
-                if (ProxyConfig.Instance.needProxy(question.Domain, realIP)) {
-                    int fakeIP = getOrCreateFakeIP(question.Domain);
-                    tamperDnsResponse(rawPacket, dnsPacket, fakeIP);
-                    if (ProxyConfig.IS_DEBUG)
-                        Log.d(Constant.TAG, "FakeDns: " +
-                                question.Domain + " " +
-                                CommonMethods.ipIntToString(realIP) + " " +
-                                CommonMethods.ipIntToString(fakeIP));
-                    return true;
-                }
+            int realIP = getFirstIP(dnsPacket);
+            if (ProxyConfig.Instance.needProxy(question.Domain, realIP)) {
+                int fakeIP = getOrCreateFakeIP(question.Domain);
+                tamperDnsResponse(rawPacket, dnsPacket, fakeIP);
+                if (ProxyConfig.IS_DEBUG)
+                    Log.d(Constant.TAG, "FakeDns: " +
+                            question.Domain + " " +
+                            CommonMethods.ipIntToString(realIP) + " " +
+                            CommonMethods.ipIntToString(fakeIP));
+                return true;
             }
         }
         return false;
