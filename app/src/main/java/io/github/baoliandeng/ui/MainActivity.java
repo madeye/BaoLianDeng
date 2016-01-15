@@ -17,6 +17,7 @@ import android.view.MenuItem;
 import android.widget.*;
 import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.support.v7.app.ActionBarActivity;
+import android.support.v7.app.ActionBar;
 import android.support.v7.widget.SwitchCompat;
 import android.support.v7.widget.Toolbar;
 
@@ -39,6 +40,17 @@ public class MainActivity extends ActionBarActivity implements
     private ScrollView scrollViewLog;
     private Calendar mCalendar;
 
+    private void updateTilte() {
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            if (LocalVpnService.IsRunning) {
+                actionBar.setTitle(getString(R.string.connected));
+            } else {
+                actionBar.setTitle(getString(R.string.disconnected));
+            }
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -55,6 +67,12 @@ public class MainActivity extends ActionBarActivity implements
 
         mCalendar = Calendar.getInstance();
         LocalVpnService.addOnStatusChangedListener(this);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateTilte();
     }
 
     String getVersionName() {
@@ -125,6 +143,7 @@ public class MainActivity extends ActionBarActivity implements
         switchProxy.setEnabled(true);
         switchProxy.setChecked(isRunning);
         onLogReceived(status);
+        updateTilte();
         Toast.makeText(this, status, Toast.LENGTH_SHORT).show();
     }
 

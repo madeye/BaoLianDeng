@@ -18,4 +18,6 @@
     <string name="exit_confirm_info">This will disconnect the VPN connection, Are you sure to exit?</string>
     <string name="err_invalid_url">The config URL is invalid.</string>
     <string name="config_url_hint">URL or local file path</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
 </resources>
