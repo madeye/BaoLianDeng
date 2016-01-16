@@ -1,6 +1,7 @@
 package io.github.baoliandeng.core;
 
 import android.annotation.SuppressLint;
+import android.util.Log;
 import io.github.baoliandeng.BuildConfig;
 import io.github.baoliandeng.tcpip.CommonMethods;
 import io.github.baoliandeng.tunnel.Config;
@@ -10,7 +11,6 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
-import java.util.regex.Pattern;
 
 public class ProxyConfig {
     public static final ProxyConfig Instance = new ProxyConfig();
@@ -19,16 +19,6 @@ public class ProxyConfig {
     public final static int FAKE_NETWORK_IP = CommonMethods.ipStringToInt("26.25.0.0");
     public static String AppInstallID;
     public static String AppVersion;
-
-    private static final String LOCAL_IP_ADDRESS = "(127[.]0[.]0[.]1)|" + "(localhost)|" +
-        "(10[.]\\d{1,3}[.]\\d{1,3}[.]\\d{1,3})|" +
-        "(172[.]((1[6-9])|(2\\d)|(3[01]))[.]\\d{1,3}[.]\\d{1,3})|" +
-        "(192[.]168[.]\\d{1,3}[.]\\d{1,3})";
-    private static Pattern localIpPattern = Pattern.compile(LOCAL_IP_ADDRESS);
-
-    public static boolean isLocalIp(String ip) {
-        return localIpPattern.matcher(ip).find();
-    }
 
     ArrayList<IPAddress> m_IpList;
     ArrayList<IPAddress> m_DnsList;
@@ -134,25 +124,35 @@ public class ProxyConfig {
     }
 
     public boolean needProxy(String host, int ip) {
+
         if (host != null) {
             Boolean stateBoolean = getDomainState(host);
             if (stateBoolean != null) {
                 return stateBoolean.booleanValue();
-            } else {
-                return false;
+            }
+
+            try {
+                if (!ChinaIpMaskManager.isIPInChina(host)) {
+                    return true;
+                }
+            } catch (IllegalArgumentException ex) {
+                // Ignore
+            }
+
+            return false;
+        }
+
+        if (ip > 0) {
+            if (isFakeIP(ip)) {
+                return true;
+            }
+
+            if (!ChinaIpMaskManager.isIPInChina(ip)) {
+                return true;
             }
         }
 
-        if (isFakeIP(ip))
-            return true;
-
-        if (ProxyConfig.isLocalIp(host))
-            return false;
-
-        if (ip != 0)
-            return !ChinaIpMaskManager.isIPInChina(ip);
-
-        return true;
+        return false;
     }
 
 

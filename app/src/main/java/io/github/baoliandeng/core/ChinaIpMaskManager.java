@@ -14,8 +14,13 @@ public class ChinaIpMaskManager {
 
     static SortedResourceSet<Ipv4, Ipv4Range> set = new SortedResourceSet<Ipv4, Ipv4Range>();
 
-    public static boolean isIPInChina(int ip){
+    public static boolean isIPInChina(int ip) throws IllegalArgumentException {
         Ipv4 ipv4 = Ipv4.of(Long.valueOf(ip));
+        return set.contains(ipv4);
+    }
+
+    public static boolean isIPInChina(String ip) throws IllegalArgumentException {
+        Ipv4 ipv4 = Ipv4.of(ip);
         return set.contains(ipv4);
     }
 
