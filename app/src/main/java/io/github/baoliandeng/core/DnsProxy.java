@@ -139,24 +139,6 @@ public class DnsProxy implements Runnable {
         return fakeIP;
     }
 
-    private boolean dnsPollution(byte[] rawPacket, DnsPacket dnsPacket) {
-        if (dnsPacket.Header.QuestionCount > 0) {
-            Question question = dnsPacket.Questions[0];
-            int realIP = getFirstIP(dnsPacket);
-            if (ProxyConfig.Instance.needProxy(question.Domain, realIP)) {
-                int fakeIP = getOrCreateFakeIP(question.Domain);
-                tamperDnsResponse(rawPacket, dnsPacket, fakeIP);
-                if (ProxyConfig.IS_DEBUG)
-                    Log.d(Constant.TAG, "FakeDns: " +
-                            question.Domain + " " +
-                            CommonMethods.ipIntToString(realIP) + " " +
-                            CommonMethods.ipIntToString(fakeIP));
-                return true;
-            }
-        }
-        return false;
-    }
-
     private void OnDnsResponseReceived(IPHeader ipHeader, UDPHeader udpHeader, DnsPacket dnsPacket) {
         QueryState state = null;
         synchronized (m_QueryArray) {
@@ -167,8 +149,6 @@ public class DnsProxy implements Runnable {
         }
 
         if (state != null) {
-            dnsPollution(udpHeader.m_Data, dnsPacket);
-
             dnsPacket.Header.setID(state.ClientQueryID);
             ipHeader.setSourceIP(state.RemoteIP);
             ipHeader.setDestinationIP(state.ClientIP);
@@ -198,7 +178,7 @@ public class DnsProxy implements Runnable {
             Log.d(Constant.TAG, "DNS Qeury " + question.Domain);
 
         if (question.Type == 1) {
-            if (ProxyConfig.Instance.needProxy(question.Domain, getIPFromCache(question.Domain))) {
+            if (ProxyConfig.Instance.needProxy(question.Domain)) {
                 int fakeIP = getOrCreateFakeIP(question.Domain);
                 tamperDnsResponse(ipHeader.m_Data, dnsPacket, fakeIP);
 

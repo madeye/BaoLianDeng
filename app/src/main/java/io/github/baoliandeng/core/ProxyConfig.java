@@ -25,7 +25,7 @@ public class ProxyConfig {
     ArrayList<Config> m_ProxyList;
     HashMap<String, Boolean> m_DomainMap;
 
-    int m_dns_ttl = 10;
+    int m_dns_ttl = 60;
     String m_welcome_info = Constant.TAG;
     String m_session_name = Constant.TAG;
     String m_user_agent = System.getProperty("http.agent");
@@ -39,9 +39,9 @@ public class ProxyConfig {
         m_DomainMap = new HashMap<String, Boolean>();
 
         m_IpList.add(new IPAddress("26.26.26.2", 32));
+        m_DnsList.add(new IPAddress("119.29.29.29"));
         m_DnsList.add(new IPAddress("223.5.5.5"));
         m_DnsList.add(new IPAddress("8.8.8.8"));
-        m_DnsList.add(new IPAddress("114.114.114.114"));
 
         Config config = HttpConnectConfig.parse("http://127.0.0.1:8787");
         if (!m_ProxyList.contains(config)) {
@@ -123,8 +123,7 @@ public class ProxyConfig {
         return null;
     }
 
-    public boolean needProxy(String host, int ip) {
-
+    public boolean needProxy(String host) {
         if (host != null) {
             Boolean stateBoolean = getDomainState(host);
             if (stateBoolean != null) {
@@ -138,10 +137,12 @@ public class ProxyConfig {
             } catch (IllegalArgumentException ex) {
                 // Ignore
             }
-
-            return false;
         }
 
+        return false;
+    }
+
+    public boolean needProxy(int ip) {
         if (ip > 0) {
             if (isFakeIP(ip)) {
                 return true;
