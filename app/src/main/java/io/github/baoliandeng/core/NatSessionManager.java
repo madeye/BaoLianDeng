@@ -6,11 +6,15 @@ import io.github.baoliandeng.tcpip.CommonMethods;
 public class NatSessionManager {
 
     static final int MAX_SESSION_COUNT = 4096;
-    static final long SESSION_TIMEOUT_NS = 600 * 1000000000L;
+    static final long SESSION_TIMEOUT_NS = 120 * 1000000000L;
     static final SparseArray<NatSession> Sessions = new SparseArray<NatSession>();
 
     public static NatSession getSession(int portKey) {
-        return Sessions.get(portKey);
+        NatSession session =  Sessions.get(portKey);
+        if (session != null) {
+            session.LastNanoTime = System.nanoTime();
+        }
+        return session;
     }
 
     public static int getSessionCount() {
