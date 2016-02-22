@@ -10,11 +10,7 @@ public class NatSessionManager {
     static final SparseArray<NatSession> Sessions = new SparseArray<NatSession>();
 
     public static NatSession getSession(int portKey) {
-        NatSession session =  Sessions.get(portKey);
-        if (session != null) {
-            session.LastNanoTime = System.nanoTime();
-        }
-        return session;
+        return Sessions.get(portKey);
     }
 
     public static int getSessionCount() {
@@ -29,6 +25,10 @@ public class NatSessionManager {
                 Sessions.removeAt(i);
             }
         }
+    }
+
+    public static void clearAllSessions() {
+        Sessions.clear();
     }
 
     public static NatSession createSession(int portKey, int remoteIP, short remotePort) {

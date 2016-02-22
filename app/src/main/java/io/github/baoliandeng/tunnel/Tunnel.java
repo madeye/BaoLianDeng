@@ -66,7 +66,7 @@ public abstract class Tunnel {
         if (m_InnerChannel.isBlocking()) {
             m_InnerChannel.configureBlocking(false);
         }
-        m_InnerChannel.register(m_Selector, SelectionKey.OP_READ, this);//ע����¼�
+        m_InnerChannel.register(m_Selector, SelectionKey.OP_READ, this);
     }
 
 

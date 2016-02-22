@@ -25,7 +25,7 @@ public class ProxyConfig {
     ArrayList<Config> m_ProxyList;
     HashMap<String, Boolean> m_DomainMap;
 
-    int m_dns_ttl = 60;
+    int m_dns_ttl = 10;
     String m_welcome_info = Constant.TAG;
     String m_session_name = Constant.TAG;
     String m_user_agent = System.getProperty("http.agent");

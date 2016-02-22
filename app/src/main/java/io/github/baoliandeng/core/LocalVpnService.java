@@ -365,6 +365,9 @@ public class LocalVpnService extends VpnService implements Runnable {
     }
 
     private ParcelFileDescriptor establishVPN() throws Exception {
+
+        NatSessionManager.clearAllSessions();
+
         Builder builder = new Builder();
         builder.setMtu(ProxyConfig.Instance.getMTU());
 
