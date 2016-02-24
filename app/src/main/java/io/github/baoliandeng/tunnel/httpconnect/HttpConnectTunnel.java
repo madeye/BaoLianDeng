@@ -38,7 +38,7 @@ public class HttpConnectTunnel extends Tunnel {
     protected void afterReceived(ByteBuffer buffer) throws Exception {
         if (!m_TunnelEstablished) {
             String response = new String(buffer.array(), buffer.position(), 12);
-            if (response.matches("^HTTP/1.[01] 200$")) {
+            if (response.matches("^HTTP/1.1 200$")) {
                 buffer.limit(buffer.position());
             } else {
                 throw new Exception(String.format(Locale.ENGLISH, "Proxy server responsed an error: %s", response));
@@ -46,6 +46,15 @@ public class HttpConnectTunnel extends Tunnel {
 
             m_TunnelEstablished = true;
             super.onTunnelEstablished();
+        } else {
+            String response = new String(buffer.array(), buffer.position(), 21);
+            if (response.matches("^Content-Length: 0\r\n\r\n$")) {
+                buffer.position(buffer.position() + 21);
+            }
+            response = new String(buffer.array(), buffer.position(), 2);
+            if (response.matches("^\r\n$")) {
+                buffer.position(buffer.position() + 2);
+            }
         }
     }
 

@@ -15,7 +15,6 @@ import java.nio.channels.SocketChannel;
 
 public abstract class Tunnel {
 
-    final static ByteBuffer GL_BUFFER = ByteBuffer.allocate(20000);
     public static long SessionCount;
     protected InetSocketAddress m_DestAddress;
     private SocketChannel m_InnerChannel;
@@ -104,7 +103,7 @@ public abstract class Tunnel {
     public void onConnectable() {
         try {
             if (m_InnerChannel.finishConnect()) {
-                onConnected(GL_BUFFER);
+                onConnected(ByteBuffer.allocate(2048));
             } else {
                 LocalVpnService.Instance.writeLog("Error: connect to %s failed.", m_ServerEP);
                 this.dispose();
@@ -117,7 +116,7 @@ public abstract class Tunnel {
 
     public void onReadable(SelectionKey key) {
         try {
-            ByteBuffer buffer = GL_BUFFER;
+            ByteBuffer buffer = ByteBuffer.allocate(2048);
             buffer.clear();
             int bytesRead = m_InnerChannel.read(buffer);
             if (bytesRead > 0) {
