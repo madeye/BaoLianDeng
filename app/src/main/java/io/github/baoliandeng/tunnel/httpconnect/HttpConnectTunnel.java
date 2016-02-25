@@ -11,6 +11,7 @@ import java.util.Locale;
 public class HttpConnectTunnel extends Tunnel {
 
     private boolean m_TunnelEstablished;
+    private boolean m_FirstPacket;
     private HttpConnectConfig m_Config;
 
     public HttpConnectTunnel(HttpConnectConfig config, Selector selector) throws IOException {
@@ -38,23 +39,32 @@ public class HttpConnectTunnel extends Tunnel {
     protected void afterReceived(ByteBuffer buffer) throws Exception {
         if (!m_TunnelEstablished) {
             String response = new String(buffer.array(), buffer.position(), 12);
-            if (response.matches("^HTTP/1.1 200$")) {
+            if (response.matches("^HTTP/1.[01] 200$")) {
                 buffer.limit(buffer.position());
             } else {
                 throw new Exception(String.format(Locale.ENGLISH, "Proxy server responsed an error: %s", response));
             }
 
             m_TunnelEstablished = true;
+            m_FirstPacket = true;
             super.onTunnelEstablished();
-        } else {
-            String response = new String(buffer.array(), buffer.position(), 21);
-            if (response.matches("^Content-Length: 0\r\n\r\n$")) {
-                buffer.position(buffer.position() + 21);
+        } else if (m_FirstPacket) {
+            // Workaround for mysterious "Content-Length: 0" after handshaking.
+            // Possible a bug of golang.
+            // Also need to remove "\r\n" afterward.
+            String response = new String(buffer.array(), buffer.position(), 17);
+            if (response.matches("^Content-Length: 0$")) {
+                buffer.position(buffer.position() + 17);
             }
-            response = new String(buffer.array(), buffer.position(), 2);
-            if (response.matches("^\r\n$")) {
-                buffer.position(buffer.position() + 2);
+            while (true) {
+                response = new String(buffer.array(), buffer.position(), 2);
+                if (response.matches("^\r\n$")) {
+                    buffer.position(buffer.position() + 2);
+                } else {
+                    break;
+                }
             }
+            m_FirstPacket = false;
         }
     }
 
