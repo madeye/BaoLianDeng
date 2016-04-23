@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">宝莲灯</string>
+    <string name="menu_item_about">关于</string>
+    <string name="btn_ok">确定</string>
+    <string name="about_info">宝莲灯：一个 Android 版本的 Lantern 客户端</string>
+    <string name="connected">已连接</string>
+    <string name="disconnected">未连接</string>
+</resources>
