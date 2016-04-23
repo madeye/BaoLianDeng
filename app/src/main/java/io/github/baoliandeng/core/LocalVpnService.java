@@ -12,18 +12,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
-import com.squareup.okhttp.OkHttpClient;
-import com.squareup.okhttp.Request;
-import com.squareup.okhttp.Response;
-import go.client.Client;
-import io.github.baoliandeng.R;
-import io.github.baoliandeng.core.ProxyConfig.IPAddress;
-import io.github.baoliandeng.dns.DnsPacket;
-import io.github.baoliandeng.tcpip.CommonMethods;
-import io.github.baoliandeng.tcpip.IPHeader;
-import io.github.baoliandeng.tcpip.TCPHeader;
-import io.github.baoliandeng.tcpip.UDPHeader;
-import io.github.baoliandeng.ui.MainActivity;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -34,6 +22,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import go.client.Client;
+import io.github.baoliandeng.R;
+import io.github.baoliandeng.core.ProxyConfig.IPAddress;
+import io.github.baoliandeng.dns.DnsPacket;
+import io.github.baoliandeng.tcpip.CommonMethods;
+import io.github.baoliandeng.tcpip.IPHeader;
+import io.github.baoliandeng.tcpip.TCPHeader;
+import io.github.baoliandeng.tcpip.UDPHeader;
+import io.github.baoliandeng.ui.MainActivity;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 public class LocalVpnService extends VpnService implements Runnable {
 

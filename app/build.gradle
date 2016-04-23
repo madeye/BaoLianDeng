@@ -3,7 +3,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:1.2.3'
+        classpath 'com.android.tools.build:gradle:2.0.0'
     }
 }
 
@@ -23,7 +23,7 @@ repositories {
 
 android {
     compileSdkVersion 23
-    buildToolsVersion "23.0.2"
+    buildToolsVersion "23.0.3"
 
     signingConfigs {
         release
@@ -31,7 +31,7 @@ android {
 
     defaultConfig {
         minSdkVersion 16
-        targetSdkVersion 22
+        targetSdkVersion 23
         versionCode 25
         versionName "0.8.2"
     }
@@ -67,6 +67,7 @@ if (propsFile.exists()) {
 dependencies {
     compile(name:'libflashlight', ext:'aar')
     compile('com.android.support:appcompat-v7:23.+')
-    compile('com.squareup.okhttp:okhttp:2.7.0')
+    compile('com.android.support:cardview-v7:23.+')
+    compile('com.squareup.okhttp3:okhttp:3.2.0')
     compile('net.ripe.commons:commons-ip-math:1.22')
 }
