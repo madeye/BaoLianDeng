@@ -42,8 +42,10 @@ public class ProxyConfig {
         m_DnsList.add(new IPAddress("119.29.29.29"));
         m_DnsList.add(new IPAddress("223.5.5.5"));
         m_DnsList.add(new IPAddress("8.8.8.8"));
+    }
 
-        Config config = HttpConnectConfig.parse("http://127.0.0.1:8787");
+    public void addProxy(String proxy) {
+        Config config = HttpConnectConfig.parse(proxy);
         if (!m_ProxyList.contains(config)) {
             m_ProxyList.add(config);
         }
@@ -54,7 +56,11 @@ public class ProxyConfig {
     }
 
     public Config getDefaultProxy() {
-        return m_ProxyList.get(0);
+        if (m_ProxyList.isEmpty()) {
+            return HttpConnectConfig.parse("http://127.0.0.1:8787");
+        } else {
+            return m_ProxyList.get(0);
+        }
     }
 
     public Config getDefaultTunnelConfig(InetSocketAddress destAddress) {

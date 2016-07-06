@@ -1,6 +1,7 @@
 package io.github.baoliandeng.core;
 
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
@@ -13,6 +14,7 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -23,7 +25,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import go.client.Client;
+import go.lantern.Lantern;
+
 import io.github.baoliandeng.R;
 import io.github.baoliandeng.core.ProxyConfig.IPAddress;
 import io.github.baoliandeng.dns.DnsPacket;
@@ -188,6 +191,10 @@ public class LocalVpnService extends VpnService implements Runnable {
         }
     }
 
+    public String configDirFor(Context context, String suffix) {
+        return new File(context.getFilesDir().getAbsolutePath(), ".lantern" + suffix).getAbsolutePath();
+    }
+
     @Override
     public synchronized void run() {
         try {
@@ -200,32 +207,22 @@ public class LocalVpnService extends VpnService implements Runnable {
 
             waitUntilPreapred();
 
-            Client.Provider.Stub stub = new Client.Provider.Stub() {
-                public boolean Verbose() {
-                    return ProxyConfig.IS_DEBUG;
+            Lantern.ProtectConnections("119.29.29.29", new Lantern.SocketProtector() {
+                // Protect is used to exclude a socket specified by fileDescriptor
+                // from the VPN connection. Once protected, the underlying connection
+                // is bound to the VPN device and won't be forwarded
+                @Override
+                public void Protect(long fileDescriptor) throws Exception {
+                    if (!protect((int) fileDescriptor)) {
+                        throw new Exception("protect socket failed");
+                    }
                 }
-                public String Model() {
-                    return model;
-                }
-                public String Device() {
-                    return device;
-                }
-                public String Version() {
-                    return version;
-                }
-                public String AppName() {
-                    return "Lantern";
-                }
-                public String SettingsDir() {
-                    return getFilesDir().getPath();
-                }
-                public void Protect(long fd) {
-                    protect((int) fd);
-                }
-            };
+            });
 
-            Client.Configure(stub);
-            Client.Start(stub);
+            go.lantern.Lantern.StartResult result =
+                go.lantern.Lantern.Start(configDirFor(this, ""), 10000, ProxyConfig.IS_DEBUG);
+
+            ProxyConfig.Instance.addProxy("http://" + result.getHTTPAddr());
 
             ChinaIpMaskManager.loadFromFile(getResources().openRawResource(R.raw.ipmask));
 
@@ -448,7 +445,7 @@ public class LocalVpnService extends VpnService implements Runnable {
         }
 
         try {
-            Client.Stop();
+            Lantern.RemoveOverrides();
         } catch (Exception e) {
             // Ignore
         }
