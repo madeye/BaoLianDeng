@@ -1,34 +1,32 @@
 package io.github.baoliandeng.ui;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnClickListener;
 import android.content.Intent;
-import android.content.SharedPreferences;
-import android.content.SharedPreferences.Editor;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.support.v7.app.ActionBar;
+import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.SwitchCompat;
+import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.widget.*;
+import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
-import android.support.v7.app.ActionBarActivity;
-import android.support.v7.app.ActionBar;
-import android.support.v7.widget.SwitchCompat;
-import android.support.v7.widget.Toolbar;
-
-import io.github.baoliandeng.R;
-import io.github.baoliandeng.core.LocalVpnService;
-import io.github.baoliandeng.core.Constant;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.File;
 import java.util.Calendar;
 
-public class MainActivity extends ActionBarActivity implements
+import io.github.baoliandeng.R;
+import io.github.baoliandeng.core.Constant;
+import io.github.baoliandeng.core.LocalVpnService;
+
+public class MainActivity extends AppCompatActivity implements
         OnCheckedChangeListener,
         LocalVpnService.onStatusChangedListener {
 
@@ -62,6 +60,7 @@ public class MainActivity extends ActionBarActivity implements
         scrollViewLog = (ScrollView) findViewById(R.id.scrollViewLog);
         textViewLog = (TextView) findViewById(R.id.textViewLog);
 
+        assert textViewLog != null;
         textViewLog.setText(GL_HISTORY_LOGS);
         scrollViewLog.fullScroll(ScrollView.FOCUS_DOWN);
 
