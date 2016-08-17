@@ -1,5 +1,6 @@
 package io.github.baoliandeng.core;
 
+import android.annotation.TargetApi;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -7,7 +8,7 @@ import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.net.VpnService;
+import android.net.*;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -18,11 +19,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.net.InetAddress;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 import go.lantern.Lantern;
@@ -67,6 +67,49 @@ public class LocalVpnService extends VpnService implements Runnable {
     private long m_SentBytes;
     private long m_ReceivedBytes;
     private String[] m_Blacklist;
+
+    public static String getDnsResolver(Context context) {
+        try {
+            Collection<InetAddress> dnsResolvers = getDnsResolvers(context);
+            if (dnsResolvers.isEmpty()) {
+                throw new Exception("Couldn't find an active DNS resolver");
+            }
+            String dnsResolver = dnsResolvers.iterator().next().toString();
+            if (dnsResolver.startsWith("/")) {
+                dnsResolver = dnsResolver.substring(1);
+            }
+            return dnsResolver;
+        } catch (Exception ex) {
+            Log.e("BaoLianDeng", "Unable to get the DNS resolver", ex);
+            return "119.29.29.29";
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    private static Collection<InetAddress> getDnsResolvers(Context context) throws Exception {
+        ArrayList<InetAddress> addresses = new ArrayList<InetAddress>();
+        ConnectivityManager connectivityManager =
+            (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        Class<?> LinkPropertiesClass = Class.forName("android.net.LinkProperties");
+        Method getActiveLinkPropertiesMethod = ConnectivityManager.class.getMethod("getActiveLinkProperties", new Class []{});
+        Object linkProperties = getActiveLinkPropertiesMethod.invoke(connectivityManager);
+        if (linkProperties != null) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                Method getDnsesMethod = LinkPropertiesClass.getMethod("getDnses", new Class []{});
+                Collection<?> dnses = (Collection<?>)getDnsesMethod.invoke(linkProperties);
+                for (Object dns : dnses) {
+                    addresses.add((InetAddress)dns);
+                }
+            } else {
+                for (InetAddress dns : ((LinkProperties)linkProperties).getDnsServers()) {
+                    addresses.add(dns);
+                }
+            }
+        }
+        return addresses;
+    }
+
+
 
     public LocalVpnService() {
         ID++;
@@ -207,7 +250,7 @@ public class LocalVpnService extends VpnService implements Runnable {
 
             waitUntilPreapred();
 
-            Lantern.ProtectConnections("119.29.29.29", new Lantern.SocketProtector() {
+            Lantern.ProtectConnections(LocalVpnService.getDnsResolver(this), new Lantern.SocketProtector() {
                 // Protect is used to exclude a socket specified by fileDescriptor
                 // from the VPN connection. Once protected, the underlying connection
                 // is bound to the VPN device and won't be forwarded
@@ -222,6 +265,7 @@ public class LocalVpnService extends VpnService implements Runnable {
             go.lantern.Lantern.StartResult result =
                 go.lantern.Lantern.Start(configDirFor(this, ""), 10000, ProxyConfig.IS_DEBUG);
 
+            ProxyConfig.Instance.setDns(LocalVpnService.getDnsResolver(this));
             ProxyConfig.Instance.addProxy("http://" + result.getHTTPAddr());
 
             ChinaIpMaskManager.loadFromFile(getResources().openRawResource(R.raw.ipmask));
