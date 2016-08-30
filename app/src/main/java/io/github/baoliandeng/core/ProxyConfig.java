@@ -31,6 +31,7 @@ public class ProxyConfig {
     String m_user_agent = System.getProperty("http.agent");
     int m_mtu = 1500;
 
+
     public ProxyConfig() {
         m_IpList = new ArrayList<IPAddress>();
         m_DnsList = new ArrayList<IPAddress>();
@@ -38,11 +39,6 @@ public class ProxyConfig {
         m_DomainMap = new HashMap<String, Boolean>();
 
         m_IpList.add(new IPAddress("26.26.26.2", 32));
-    }
-
-    public void setDns(String dns) {
-        m_DnsList.clear();
-        m_DnsList.add(new IPAddress(dns));
         m_DnsList.add(new IPAddress("119.29.29.29"));
         m_DnsList.add(new IPAddress("223.5.5.5"));
         m_DnsList.add(new IPAddress("8.8.8.8"));
