@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import go.lantern.Lantern;
+import lantern.*;
 
 import io.github.baoliandeng.R;
 import io.github.baoliandeng.core.ProxyConfig.IPAddress;
@@ -207,20 +207,20 @@ public class LocalVpnService extends VpnService implements Runnable {
 
             waitUntilPreapred();
 
-            Lantern.ProtectConnections("119.29.29.29", new Lantern.SocketProtector() {
+            Lantern.protectConnections("119.29.29.29", new SocketProtector() {
                 // Protect is used to exclude a socket specified by fileDescriptor
                 // from the VPN connection. Once protected, the underlying connection
                 // is bound to the VPN device and won't be forwarded
                 @Override
-                public void Protect(long fileDescriptor) throws Exception {
-                    if (!protect((int) fileDescriptor)) {
+                public void protect(long fileDescriptor) throws Exception {
+                    if (!LocalVpnService.this.protect((int) fileDescriptor)) {
                         throw new Exception("protect socket failed");
                     }
                 }
             });
 
-            go.lantern.Lantern.StartResult result =
-                go.lantern.Lantern.Start(configDirFor(this, ""), 10000, ProxyConfig.IS_DEBUG);
+            StartResult result =
+                Lantern.start(configDirFor(this, ""), 10000, ProxyConfig.IS_DEBUG);
 
             ProxyConfig.Instance.addProxy("http://" + result.getHTTPAddr());
 
@@ -445,7 +445,7 @@ public class LocalVpnService extends VpnService implements Runnable {
         }
 
         try {
-            Lantern.RemoveOverrides();
+            Lantern.removeOverrides();
         } catch (Exception e) {
             // Ignore
         }
