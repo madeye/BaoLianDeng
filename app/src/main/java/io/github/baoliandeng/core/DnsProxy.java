@@ -175,7 +175,7 @@ public class DnsProxy implements Runnable {
         Question question = dnsPacket.Questions[0];
 
         if (ProxyConfig.IS_DEBUG)
-            Log.d(Constant.TAG, "DNS Qeury " + question.Domain);
+            Log.d(Constant.TAG, "DNS Query " + question.Domain);
 
         if (question.Type == 1) {
             if (ProxyConfig.Instance.needProxy(question.Domain)) {

@@ -38,7 +38,7 @@ public class MainActivity extends AppCompatActivity implements
     private ScrollView scrollViewLog;
     private Calendar mCalendar;
 
-    private void updateTilte() {
+    private void updateTitle() {
         ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
             if (LocalVpnService.IsRunning) {
@@ -71,7 +71,7 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     protected void onResume() {
         super.onResume();
-        updateTilte();
+        updateTitle();
     }
 
     String getVersionName() {
@@ -142,7 +142,7 @@ public class MainActivity extends AppCompatActivity implements
         switchProxy.setEnabled(true);
         switchProxy.setChecked(isRunning);
         onLogReceived(status);
-        updateTilte();
+        updateTitle();
         Toast.makeText(this, status, Toast.LENGTH_SHORT).show();
     }
 

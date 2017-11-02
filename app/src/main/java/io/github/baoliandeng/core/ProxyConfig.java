@@ -172,8 +172,8 @@ public class ProxyConfig {
             this.PrefixLength = prefixLength;
         }
 
-        public IPAddress(String ipAddresString) {
-            String[] arrStrings = ipAddresString.split("/");
+        public IPAddress(String ipAddressString) {
+            String[] arrStrings = ipAddressString.split("/");
             String address = arrStrings[0];
             int prefixLength = 32;
             if (arrStrings.length > 1) {
