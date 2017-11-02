@@ -205,7 +205,7 @@ public class LocalVpnService extends VpnService implements Runnable {
             writeLog("Android version: %s", Build.VERSION.RELEASE);
             writeLog("App version: %s", ProxyConfig.AppVersion);
 
-            waitUntilPreapred();
+            waitUntilPrepared();
 
             Lantern.protectConnections("119.29.29.29", new SocketProtector() {
                 // Protect is used to exclude a socket specified by fileDescriptor
@@ -352,7 +352,7 @@ public class LocalVpnService extends VpnService implements Runnable {
         }
     }
 
-    private void waitUntilPreapred() {
+    private void waitUntilPrepared() {
         while (prepare(this) != null) {
             try {
                 Thread.sleep(100);

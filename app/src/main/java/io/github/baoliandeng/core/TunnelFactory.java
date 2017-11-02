@@ -22,7 +22,7 @@ public class TunnelFactory {
             if (config instanceof HttpConnectConfig) {
                 return new HttpConnectTunnel((HttpConnectConfig) config, selector);
             }
-            throw new Exception("The config is unknow.");
+            throw new Exception("The config is unknown.");
         } else {
             return new RawTunnel(destAddress, selector);
         }

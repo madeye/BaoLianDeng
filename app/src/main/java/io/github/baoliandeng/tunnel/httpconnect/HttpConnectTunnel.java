@@ -42,7 +42,7 @@ public class HttpConnectTunnel extends Tunnel {
             if (response.matches("^HTTP/1.[01] 200$")) {
                 buffer.limit(buffer.position());
             } else {
-                throw new Exception(String.format(Locale.ENGLISH, "Proxy server responsed an error: %s", response));
+                throw new Exception(String.format(Locale.ENGLISH, "Proxy server responds an error: %s", response));
             }
 
             m_TunnelEstablished = true;
