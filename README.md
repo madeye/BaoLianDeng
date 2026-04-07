@@ -47,7 +47,6 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 ### Homebrew
 
 ```bash
-brew tap madeye/BaoLianDeng https://github.com/madeye/BaoLianDeng
 brew install --cask baoliandeng
 ```
 
