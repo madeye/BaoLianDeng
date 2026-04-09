@@ -7,7 +7,7 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 ## Features
 
 - **Transparent Proxy** — Built on `NETransparentProxyProvider` for socket-level flow interception, faster than traditional TUN-based solutions
-- **Rust-Powered Engine** — Mihomo (Clash Meta) compiled as a native xcframework via Rust FFI
+- **Upstream Mihomo Engine** — Original Go [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) compiled as a native xcframework via cgo
 - **Per-App Proxy** — Choose which apps go through the proxy (allowlist) or bypass it (blocklist)
 - **Subscription Management** — Add, refresh, and switch between proxy subscriptions (Clash YAML and base64 formats)
 - **Smart Proxy Routing** — Browse nodes with latency indicators, switch proxy groups, rule/global/direct modes
@@ -31,7 +31,7 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 │  ┌──────────────────┴────────────────────┐  │
 │  │  NETransparentProxyProvider           │  │
 │  │    ┌──────────────────────────────┐   │  │
-│  │    │ MihomoCore.xcframework (Rust)│   │  │
+│  │    │ MihomoCore.xcframework (Go)  │   │  │
 │  │    │  - Proxy Engine              │   │  │
 │  │    │  - DNS (fake-ip)             │   │  │
 │  │    │  - Rules / Routing           │   │  │
@@ -62,15 +62,15 @@ The DMG is signed with Developer ID and notarized by Apple.
 
 ### Build from Source
 
-**Prerequisites:** macOS 14.0+ with Xcode 15+, Rust toolchain (`rustup` with `aarch64-apple-darwin` and `x86_64-apple-darwin` targets)
+**Prerequisites:** macOS 14.0+ with Xcode 15+, Go 1.23+ (`brew install go`)
 
-#### 1. Build the Rust framework
+#### 1. Build the Go framework
 
 ```bash
 make framework    # macOS universal (arm64 + x86_64)
 ```
 
-This compiles the Mihomo Rust FFI into `Framework/MihomoCore.xcframework`.
+This builds the Go cgo bridge under `Go/mihomo-bridge/` into `Framework/MihomoCore.xcframework`.
 
 #### 2. Configure signing
 

@@ -13,14 +13,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-RUST_FFI_DIR = Rust/mihomo-ffi
-FFI_OBJC = $(RUST_FFI_DIR)/objc
+GO_BRIDGE_DIR = Go/mihomo-bridge
+FFI_OBJC = $(GO_BRIDGE_DIR)/objc
 FRAMEWORK_DIR = Framework
 FRAMEWORK_NAME = MihomoCore
 BUILD_DIR = /tmp/mihomo-ffi-build
 
-CARGO_FLAGS = --release
-RUSTFLAGS_MACOS = -C strip=symbols
+GO_LDFLAGS = -s -w
 
 # macOS SDK path
 MACOS_SDK = $(shell xcrun --sdk macosx --show-sdk-path)
@@ -33,25 +32,33 @@ all: framework
 framework: framework-macos
 
 framework-macos:
-	# Build Rust staticlib for each macOS target
-	cd $(RUST_FFI_DIR) && RUSTFLAGS="$(RUSTFLAGS_MACOS)" cargo build $(CARGO_FLAGS) --target aarch64-apple-darwin
-	cd $(RUST_FFI_DIR) && RUSTFLAGS="$(RUSTFLAGS_MACOS)" cargo build $(CARGO_FLAGS) --target x86_64-apple-darwin
-	# Compile ObjC wrapper for each macOS arch
 	@mkdir -p $(BUILD_DIR)
+	# Build Go c-archive for arm64
+	cd $(GO_BRIDGE_DIR) && CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+		CC="xcrun --sdk macosx clang -target arm64-apple-macos14.0 -arch arm64" \
+		go build -buildmode=c-archive -ldflags "$(GO_LDFLAGS)" \
+		-o $(BUILD_DIR)/libmihomo_bridge-arm64.a .
+	# Build Go c-archive for x86_64
+	cd $(GO_BRIDGE_DIR) && CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
+		CC="xcrun --sdk macosx clang -target x86_64-apple-macos14.0 -arch x86_64" \
+		go build -buildmode=c-archive -ldflags "$(GO_LDFLAGS)" \
+		-o $(BUILD_DIR)/libmihomo_bridge-x86.a .
+	# Compile ObjC wrapper for each macOS arch
 	xcrun clang -c $(FFI_OBJC)/MihomoCore.m -o $(BUILD_DIR)/objc-macos-arm64.o \
 		-target arm64-apple-macos14.0 -fobjc-arc -isysroot $(MACOS_SDK) -I$(FFI_OBJC)
 	xcrun clang -c $(FFI_OBJC)/MihomoCore.m -o $(BUILD_DIR)/objc-macos-x86.o \
 		-target x86_64-apple-macos14.0 -fobjc-arc -isysroot $(MACOS_SDK) -I$(FFI_OBJC)
-	# Combine Rust .a + ObjC .o into single .a per arch
+	# Combine Go .a + ObjC .o into single .a per arch
 	xcrun libtool -static -o $(BUILD_DIR)/macos-arm64.a \
-		$(RUST_FFI_DIR)/target/aarch64-apple-darwin/release/libmihomo_ffi.a $(BUILD_DIR)/objc-macos-arm64.o
+		$(BUILD_DIR)/libmihomo_bridge-arm64.a $(BUILD_DIR)/objc-macos-arm64.o
 	xcrun libtool -static -o $(BUILD_DIR)/macos-x86.a \
-		$(RUST_FFI_DIR)/target/x86_64-apple-darwin/release/libmihomo_ffi.a $(BUILD_DIR)/objc-macos-x86.o
+		$(BUILD_DIR)/libmihomo_bridge-x86.a $(BUILD_DIR)/objc-macos-x86.o
 	# Fat library for macOS (arm64 + x86_64)
 	@mkdir -p $(BUILD_DIR)/macos
 	lipo -create $(BUILD_DIR)/macos-arm64.a $(BUILD_DIR)/macos-x86.a \
 		-output $(BUILD_DIR)/macos/lib$(FRAMEWORK_NAME).a
-	# Prepare headers directory
+	# Prepare headers directory (use the hand-written MihomoCore.h, NOT the
+	# Go-generated libmihomo_bridge-*.h — Swift imports the stable ObjC API)
 	@rm -rf $(BUILD_DIR)/headers
 	@mkdir -p $(BUILD_DIR)/headers
 	@cp $(FFI_OBJC)/MihomoCore.h $(BUILD_DIR)/headers/
@@ -66,7 +73,6 @@ framework-macos:
 clean:
 	rm -rf $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework
 	rm -rf $(BUILD_DIR)
-	cd $(RUST_FFI_DIR) && cargo clean
 
 e2e-setup:
 	./tests/e2e/vm-setup.sh
