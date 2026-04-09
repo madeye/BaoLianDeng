@@ -11,6 +11,8 @@
 		1192B4E07CB73CE52B73397A /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040 /* NetworkExtension.framework */; };
 		1523F68758DA2845A73E68DE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
 		1C46310C4BA03116BAE1CF24 /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* ConfigManager.swift */; };
+		229817DC4FF5F4C1B505EA5B /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1C7E7C8B9AB9C840397D6E5B /* FirebaseCore */; };
+		285CADD9EA77AC7AFB8A182A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 2C3845EF76797DFD11D5207E /* FirebaseCrashlytics */; };
 		45FA5D0C3EA6EE814F43E891 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* HomeView.swift */; };
 		489D78A7BFE5597B42E4C447 /* TrafficView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* TrafficView.swift */; };
 		599CCDA2D5B238AF73EDF62D /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = 26E740A797906E5C84A95212 /* Yams */; };
@@ -26,35 +28,36 @@
 		9161E23D345558ED5649452F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10010 /* Assets.xcassets */; };
 		9C1CFB15DEC224B8210EA2E9 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
 		9EAAFF911784E9AE012953A3 /* TransparentProxyProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TransparentProxyProvider.swift */; };
-		A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		A11E11AF2CAB6611B7442CD4 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E02415D2E45FB235C0EF142 /* Cocoa.framework */; };
+		A1B2C3D4E5F60718293A4B5C /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
+		A1B2C3D4E5F60718293A4B5D /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
+		A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096 /* PerAppProxySection.swift */; };
+		A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* TrafficStore.swift */; };
 		AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* TunnelLogView.swift */; };
 		ADFBB07EC9AE7B14EE8CF08D /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* VPNManager.swift */; };
-		C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
-		F0MAIN0001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881BF3538A657F9F7F3951E8 /* main.swift */; };
-		C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
-		CEE9200E5015BA697A46FD4A /* TransparentProxy.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* TransparentProxy.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
-		DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BaoLianDengApp.swift */; };
-		E4A1B2C3D5F6078E9A1B3C5D /* ConfigStyleHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* ConfigStyleHelpers.swift */; };
 		B10056 /* ConfigListViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055 /* ConfigListViews.swift */; };
-		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
-		A1B2C3D4E5F60718293A4B5C /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
-		A1B2C3D4E5F60718293A4B5D /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
-		T10022 /* BypassGroupDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10021 /* BypassGroupDetectionTests.swift */; };
-		B10400A /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
-		B10400B /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
-		A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096 /* PerAppProxySection.swift */; };
 		B10201 /* SubscriptionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* SubscriptionModels.swift */; };
 		B10203 /* NodeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10202 /* NodeRow.swift */; };
 		B10205 /* MainContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10204 /* MainContentView.swift */; };
 		B10207 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10206 /* SidebarView.swift */; };
 		B10209 /* VPNToolbarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10208 /* VPNToolbarContent.swift */; };
-		T10008 /* PerAppProxySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10007 /* PerAppProxySettingsTests.swift */; };
+		B10400A /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
+		B10400B /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
+		C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
+		C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
+		CEE9200E5015BA697A46FD4A /* TransparentProxy.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* TransparentProxy.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
+		DFE148A5A01ECFEC5A64770A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = BD949DF6CA3380988A939F26 /* FirebaseAnalytics */; };
+		DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BaoLianDengApp.swift */; };
+		E4A1B2C3D5F6078E9A1B3C5D /* ConfigStyleHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* ConfigStyleHelpers.swift */; };
+		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
+		F0MAIN0001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881BF3538A657F9F7F3951E8 /* main.swift */; };
+		F6951B7026A9ABC83EB7A583 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E02415D2E45FB235C0EF142 /* Cocoa.framework */; };
 		L10100 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10100 /* Localizable.xcstrings */; };
 		L10101 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10101 /* InfoPlist.xcstrings */; };
-		F6951B7026A9ABC83EB7A583 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E02415D2E45FB235C0EF142 /* Cocoa.framework */; };
+		T10008 /* PerAppProxySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10007 /* PerAppProxySettingsTests.swift */; };
+		T10022 /* BypassGroupDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10021 /* BypassGroupDetectionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -100,7 +103,6 @@
 		B10002 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		B10003 /* TrafficView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficView.swift; sourceTree = "<group>"; };
 		B10004 /* ConfigEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigEditorView.swift; sourceTree = "<group>"; };
-		B10052 /* ConfigSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigSubViews.swift; sourceTree = "<group>"; };
 		B10006 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		B10007 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		B10008 /* ConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigManager.swift; sourceTree = "<group>"; };
@@ -115,25 +117,26 @@
 		B10040 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 		B10050 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10051 /* YAMLEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLEditor.swift; sourceTree = "<group>"; };
+		B10052 /* ConfigSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigSubViews.swift; sourceTree = "<group>"; };
 		B10053 /* YAMLHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLHighlighter.swift; sourceTree = "<group>"; };
+		B10054 /* ConfigStyleHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStyleHelpers.swift; sourceTree = "<group>"; };
+		B10055 /* ConfigListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigListViews.swift; sourceTree = "<group>"; };
 		B10060 /* TrafficStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStore.swift; sourceTree = "<group>"; };
 		B10070 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 		B10090 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
+		B10095 /* PerAppProxySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettings.swift; sourceTree = "<group>"; };
+		B10096 /* PerAppProxySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySection.swift; sourceTree = "<group>"; };
 		B10100 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		B10101 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
-		B10054 /* ConfigStyleHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStyleHelpers.swift; sourceTree = "<group>"; };
-		B10055 /* ConfigListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigListViews.swift; sourceTree = "<group>"; };
-		B10095 /* PerAppProxySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettings.swift; sourceTree = "<group>"; };
-		T10021 /* BypassGroupDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BypassGroupDetectionTests.swift; sourceTree = "<group>"; };
-		B10400 /* SOCKS5Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOCKS5Client.swift; sourceTree = "<group>"; };
-		B10096 /* PerAppProxySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySection.swift; sourceTree = "<group>"; };
 		B10200 /* SubscriptionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionModels.swift; sourceTree = "<group>"; };
 		B10202 /* NodeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRow.swift; sourceTree = "<group>"; };
 		B10204 /* MainContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainContentView.swift; sourceTree = "<group>"; };
 		B10206 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		B10208 /* VPNToolbarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNToolbarContent.swift; sourceTree = "<group>"; };
+		B10400 /* SOCKS5Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOCKS5Client.swift; sourceTree = "<group>"; };
 		T10007 /* PerAppProxySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettingsTests.swift; sourceTree = "<group>"; };
 		T10010 /* BaoLianDengTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BaoLianDengTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		T10021 /* BypassGroupDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BypassGroupDetectionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -145,6 +148,9 @@
 				1192B4E07CB73CE52B73397A /* NetworkExtension.framework in Frameworks */,
 				C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */,
 				599CCDA2D5B238AF73EDF62D /* Yams in Frameworks */,
+				229817DC4FF5F4C1B505EA5B /* FirebaseCore in Frameworks */,
+				DFE148A5A01ECFEC5A64770A /* FirebaseAnalytics in Frameworks */,
+				285CADD9EA77AC7AFB8A182A /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -348,6 +354,9 @@
 			name = BaoLianDeng;
 			packageProductDependencies = (
 				26E740A797906E5C84A95212 /* Yams */,
+				1C7E7C8B9AB9C840397D6E5B /* FirebaseCore */,
+				BD949DF6CA3380988A939F26 /* FirebaseAnalytics */,
+				2C3845EF76797DFD11D5207E /* FirebaseCrashlytics */,
 			);
 			productName = BaoLianDeng;
 			productReference = 8A37D4B4A6176DB152B15D42 /* BaoLianDeng.app */;
@@ -392,6 +401,7 @@
 			mainGroup = G10001;
 			packageReferences = (
 				YMS0001 /* XCRemoteSwiftPackageReference "Yams" */,
+				38A424D3E90991ED0F5F3862 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			productRefGroup = G10007 /* Products */;
 			projectDirPath = "";
@@ -508,7 +518,6 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
-				PROVISIONING_PROFILE_SPECIFIER = "io.github.baoliandeng.macos.TransparentProxy";
 				CURRENT_PROJECT_VERSION = 27;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -529,6 +538,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				PRODUCT_NAME = io.github.baoliandeng.macos.TransparentProxy;
+				PROVISIONING_PROFILE_SPECIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -546,7 +556,6 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
-				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 27;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -568,6 +577,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -582,7 +592,6 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
-				PROVISIONING_PROFILE_SPECIFIER = "io.github.baoliandeng.macos.TransparentProxy";
 				CURRENT_PROJECT_VERSION = 104;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -603,6 +612,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				PRODUCT_NAME = io.github.baoliandeng.macos.TransparentProxy;
+				PROVISIONING_PROFILE_SPECIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -620,7 +630,6 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
-				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 104;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -642,11 +651,46 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
+		};
+		T10003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BaoLianDeng.app/Contents/MacOS/BaoLianDeng";
+			};
+			name = Debug;
+		};
+		T10004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BaoLianDeng.app/Contents/MacOS/BaoLianDeng";
+			};
+			name = Release;
 		};
 		Y10001 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -703,40 +747,6 @@
 			};
 			name = Release;
 		};
-		T10003 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BaoLianDeng.app/Contents/MacOS/BaoLianDeng";
-			};
-			name = Debug;
-		};
-		T10004 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BaoLianDeng.app/Contents/MacOS/BaoLianDeng";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -758,15 +768,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		X10003 /* Build configuration list for PBXProject "BaoLianDeng" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				Y10001 /* Debug */,
-				Y10002 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		T10002 /* Build configuration list for PBXNativeTarget "BaoLianDengTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -776,9 +777,26 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		X10003 /* Build configuration list for PBXProject "BaoLianDeng" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				Y10001 /* Debug */,
+				Y10002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		38A424D3E90991ED0F5F3862 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
 		YMS0001 /* XCRemoteSwiftPackageReference "Yams" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/jpsim/Yams.git";
@@ -790,10 +808,25 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1C7E7C8B9AB9C840397D6E5B /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 38A424D3E90991ED0F5F3862 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
 		26E740A797906E5C84A95212 /* Yams */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = YMS0001 /* XCRemoteSwiftPackageReference "Yams" */;
 			productName = Yams;
+		};
+		2C3845EF76797DFD11D5207E /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 38A424D3E90991ED0F5F3862 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+		BD949DF6CA3380988A939F26 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 38A424D3E90991ED0F5F3862 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
 		};
 		BDB2BE65B199185132229163 /* Yams */ = {
 			isa = XCSwiftPackageProductDependency;
