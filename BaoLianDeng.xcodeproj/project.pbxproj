@@ -54,6 +54,7 @@
 		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
 		F0MAIN0001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881BF3538A657F9F7F3951E8 /* main.swift */; };
 		F6951B7026A9ABC83EB7A583 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E02415D2E45FB235C0EF142 /* Cocoa.framework */; };
+		FC746D91C3321AA06076776D /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = EEB4B615F35B5B3D01F6349F /* GoogleService-Info.plist */; };
 		L10100 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10100 /* Localizable.xcstrings */; };
 		L10101 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10101 /* InfoPlist.xcstrings */; };
 		T10008 /* PerAppProxySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10007 /* PerAppProxySettingsTests.swift */; };
@@ -134,6 +135,7 @@
 		B10206 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		B10208 /* VPNToolbarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNToolbarContent.swift; sourceTree = "<group>"; };
 		B10400 /* SOCKS5Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOCKS5Client.swift; sourceTree = "<group>"; };
+		EEB4B615F35B5B3D01F6349F /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		T10007 /* PerAppProxySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettingsTests.swift; sourceTree = "<group>"; };
 		T10010 /* BaoLianDengTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BaoLianDengTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		T10021 /* BypassGroupDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BypassGroupDetectionTests.swift; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				B10101 /* InfoPlist.xcstrings */,
 				G10009 /* Models */,
 				G10008 /* Views */,
+				EEB4B615F35B5B3D01F6349F /* GoogleService-Info.plist */,
 			);
 			path = BaoLianDeng;
 			sourceTree = "<group>";
@@ -422,6 +425,7 @@
 				9161E23D345558ED5649452F /* Assets.xcassets in Resources */,
 				L10100 /* Localizable.xcstrings in Resources */,
 				L10101 /* InfoPlist.xcstrings in Resources */,
+				FC746D91C3321AA06076776D /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -518,7 +522,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 38;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -557,7 +561,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 38;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

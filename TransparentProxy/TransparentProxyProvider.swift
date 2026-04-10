@@ -56,6 +56,49 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
     }
 
+    // MARK: - Geodata Download
+
+    private static let geodataFiles: [(filename: String, url: String)] = [
+        ("geoip.metadb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"),
+        ("geosite.dat", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"),
+    ]
+
+    private func downloadGeodataIfNeeded(configDir: String) {
+        for file in Self.geodataFiles {
+            let dest = (configDir as NSString).appendingPathComponent(file.filename)
+            guard !FileManager.default.fileExists(atPath: dest) else { continue }
+
+            log("Downloading \(file.filename) from jsDelivr...")
+            guard let url = URL(string: file.url) else {
+                log("WARNING: Invalid URL for \(file.filename)")
+                continue
+            }
+
+            let semaphore = DispatchSemaphore(value: 0)
+            let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+                defer { semaphore.signal() }
+                if let error = error {
+                    self?.log("WARNING: Failed to download \(file.filename): \(error.localizedDescription)")
+                    return
+                }
+                guard let data = data,
+                      let httpResponse = response as? HTTPURLResponse,
+                      httpResponse.statusCode == 200 else {
+                    self?.log("WARNING: Bad response downloading \(file.filename)")
+                    return
+                }
+                do {
+                    try data.write(to: URL(fileURLWithPath: dest))
+                    self?.log("Downloaded \(file.filename) (\(data.count) bytes)")
+                } catch {
+                    self?.log("WARNING: Failed to write \(file.filename): \(error.localizedDescription)")
+                }
+            }
+            task.resume()
+            semaphore.wait()
+        }
+    }
+
     // MARK: - Proxy Lifecycle
 
     override func startProxy(
@@ -101,6 +144,9 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             let rustLogPath = (configDir as NSString).deletingLastPathComponent
                 + "/rust_bridge.log"
             BridgeSetLogFile(rustLogPath)
+
+            // Download geodata files if not already present
+            self?.downloadGeodataIfNeeded(configDir: configDir)
 
             self?.log("Setting home dir: \(configDir)")
             BridgeSetHomeDir(configDir)

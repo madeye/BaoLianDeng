@@ -499,8 +499,11 @@ final class VPNManager: NSObject, ObservableObject {
                 options: .regularExpression)
         }
         if let mode = defaults.string(forKey: "proxyMode") {
+            // Anchor to a word boundary so we don't rewrite `enhanced-mode:`
+            // (mihomo's DNS parser rejects `enhanced-mode: rule` with
+            // "hub.Parse: invalid mode").
             yaml = yaml.replacingOccurrences(
-                of: #"mode:\s*\w+"#, with: "mode: \(mode)",
+                of: #"(?<![\w-])mode:\s*\w+"#, with: "mode: \(mode)",
                 options: .regularExpression)
         }
 
