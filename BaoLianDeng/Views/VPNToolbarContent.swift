@@ -35,6 +35,8 @@ struct VPNToolbarContent: ToolbarContent {
                     Text(node)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 200)
                 }
 
                 Toggle("", isOn: Binding(
