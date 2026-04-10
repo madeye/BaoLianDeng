@@ -43,7 +43,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 
     private func log(_ message: String) {
         let line = "[\(Date())] \(message)\n"
-        AppLogger.tunnel.info("\(message, privacy: .public)")
+        AppLogger.tunnel.notice("\(message, privacy: .public)")
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: logURL.path),
                let handle = try? FileHandle(forWritingTo: logURL) {
@@ -58,58 +58,8 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 
     // MARK: - Geodata Setup
 
-    private static let geodataFiles: [(name: String, ext: String, url: String)] = [
-        ("geoip", "metadb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"),
-        ("geosite", "dat", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"),
-    ]
-
     private func ensureGeodataFiles(configDir: String) {
-        for file in Self.geodataFiles {
-            let filename = "\(file.name).\(file.ext)"
-            let dest = (configDir as NSString).appendingPathComponent(filename)
-            guard !FileManager.default.fileExists(atPath: dest) else { continue }
-
-            // Try bundled copy first
-            if let src = Bundle.main.path(forResource: file.name, ofType: file.ext) {
-                do {
-                    try FileManager.default.copyItem(atPath: src, toPath: dest)
-                    log("Copied bundled \(filename) to config dir")
-                    continue
-                } catch {
-                    log("WARNING: Failed to copy bundled \(filename): \(error.localizedDescription)")
-                }
-            }
-
-            // Fall back to downloading from jsDelivr
-            log("Downloading \(filename) from jsDelivr...")
-            guard let url = URL(string: file.url) else {
-                log("WARNING: Invalid URL for \(filename)")
-                continue
-            }
-
-            let semaphore = DispatchSemaphore(value: 0)
-            let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-                defer { semaphore.signal() }
-                if let error = error {
-                    self?.log("WARNING: Failed to download \(filename): \(error.localizedDescription)")
-                    return
-                }
-                guard let data = data,
-                      let httpResponse = response as? HTTPURLResponse,
-                      httpResponse.statusCode == 200 else {
-                    self?.log("WARNING: Bad response downloading \(filename)")
-                    return
-                }
-                do {
-                    try data.write(to: URL(fileURLWithPath: dest))
-                    self?.log("Downloaded \(filename) (\(data.count) bytes)")
-                } catch {
-                    self?.log("WARNING: Failed to write \(filename): \(error.localizedDescription)")
-                }
-            }
-            task.resume()
-            semaphore.wait()
-        }
+        ConfigManager.shared.ensureGeodataFiles(configDir: configDir)
     }
 
     // MARK: - Proxy Lifecycle

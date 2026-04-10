@@ -26,10 +26,10 @@ enum AppLogger {
     static let parser  = Logger(subsystem: subsystem, category: "parser")
     static let network = Logger(subsystem: subsystem, category: "network")
 
-    /// Log to both os.Logger and NSLog so messages appear in idevicesyslog.
-    /// Use for key diagnostic messages that need to be captured without sudo.
+    /// Log to both os.Logger and NSLog so messages appear in system log.
+    /// Uses .notice level so messages are persisted and visible via `log show`.
     static func log(_ logger: Logger, category: String, _ message: String) {
-        logger.info("\(message, privacy: .public)")
+        logger.notice("\(message, privacy: .public)")
         NSLog("[%@] %@", category, message)
     }
 }

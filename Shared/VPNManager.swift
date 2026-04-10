@@ -32,9 +32,7 @@ final class VPNManager: NSObject, ObservableObject {
     private var pendingActivation = false
     private var isLoadingManager = false
     private func dbg(_ msg: String) {
-        #if DEBUG
-        AppLogger.vpn.debug("\(msg, privacy: .public)")
-        #endif
+        AppLogger.vpn.notice("\(msg, privacy: .public)")
     }
 
     private var manager: NETransparentProxyManager?

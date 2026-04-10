@@ -382,18 +382,15 @@ enum SubscriptionParser {
             }
         }
 
-        // Build complete YAML with proxies + proxy-groups
+        // Build complete YAML with proxies + proxy-groups (no leading indentation)
         let nodeNames = nodes.map { "      - \"\($0.name)\"" }.joined(separator: "\n")
-        let fullYAML = """
-        proxies:
-        \(yamlProxies.joined(separator: "\n"))
-
-        proxy-groups:
-          - name: PROXY
-            type: select
-            proxies:
-        \(nodeNames)
-        """
+        var fullYAML = "proxies:\n"
+        fullYAML += yamlProxies.joined(separator: "\n")
+        fullYAML += "\n\nproxy-groups:\n"
+        fullYAML += "  - name: PROXY\n"
+        fullYAML += "    type: select\n"
+        fullYAML += "    proxies:\n"
+        fullYAML += nodeNames
 
         AppLogger.log(AppLogger.parser, category: "parser", "URI list: parsed \(nodes.count) nodes")
         return (nodes, fullYAML)

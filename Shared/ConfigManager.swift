@@ -23,6 +23,11 @@ final class ConfigManager {
 
     private let fileManager = FileManager.default
 
+    static let geodataFiles: [(name: String, ext: String, url: String)] = [
+        ("geoip", "metadb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"),
+        ("geosite", "dat", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"),
+    ]
+
     private init() {}
 
     var configDirectoryURL: URL? {
@@ -42,6 +47,54 @@ final class ConfigManager {
         }
         if !fileManager.fileExists(atPath: dirURL.path) {
             try fileManager.createDirectory(at: dirURL, withIntermediateDirectories: true)
+        }
+    }
+
+    /// Ensure geodata files (geoip.metadb, geosite.dat) exist in the given directory.
+    /// Tries the app bundle first, then downloads from jsDelivr.
+    func ensureGeodataFiles(configDir: String) {
+        for file in Self.geodataFiles {
+            let filename = "\(file.name).\(file.ext)"
+            let dest = (configDir as NSString).appendingPathComponent(filename)
+            guard !fileManager.fileExists(atPath: dest) else { continue }
+
+            // Try bundled copy first
+            if let src = Bundle.main.path(forResource: file.name, ofType: file.ext) {
+                do {
+                    try fileManager.copyItem(atPath: src, toPath: dest)
+                    AppLogger.config.notice("Copied bundled \(filename) to config dir")
+                    continue
+                } catch {
+                    AppLogger.config.warning("Failed to copy bundled \(filename): \(error.localizedDescription)")
+                }
+            }
+
+            // Fall back to downloading from jsDelivr
+            AppLogger.config.notice("Downloading \(filename) from jsDelivr...")
+            guard let url = URL(string: file.url) else { continue }
+
+            let semaphore = DispatchSemaphore(value: 0)
+            let task = URLSession.shared.dataTask(with: url) { data, response, error in
+                defer { semaphore.signal() }
+                if let error = error {
+                    AppLogger.config.warning("Failed to download \(filename): \(error.localizedDescription)")
+                    return
+                }
+                guard let data = data,
+                      let httpResponse = response as? HTTPURLResponse,
+                      httpResponse.statusCode == 200 else {
+                    AppLogger.config.warning("Bad response downloading \(filename)")
+                    return
+                }
+                do {
+                    try data.write(to: URL(fileURLWithPath: dest))
+                    AppLogger.config.notice("Downloaded \(filename) (\(data.count) bytes)")
+                } catch {
+                    AppLogger.config.warning("Failed to write \(filename): \(error.localizedDescription)")
+                }
+            }
+            task.resume()
+            semaphore.wait()
         }
     }
 
@@ -343,13 +396,21 @@ final class ConfigManager {
     /// Returns nil if valid, or an error message string if invalid.
     func validateSubscriptionConfig(_ yaml: String) -> String? {
         let merged = mergeSubscription(yaml)
-        AppLogger.config.debug("merged config length: \(merged.count), preview: \(String(merged.prefix(300)), privacy: .public)")
+        AppLogger.config.notice("merged config length: \(merged.count), preview: \(String(merged.prefix(300)), privacy: .public)")
+
+        // Mihomo's config.Parse needs HomeDir set so it can find geodata files
+        // (geoip.metadb, geosite.dat) when validating GEOIP/GEOSITE rules.
+        if let dir = configDirectoryURL?.path {
+            ensureGeodataFiles(configDir: dir)
+            BridgeSetHomeDir(dir)
+        }
+
         var err: NSError?
         BridgeValidateConfig(merged, &err)
         if let err = err {
             AppLogger.config.error("BridgeValidateConfig error: \(err.localizedDescription, privacy: .public)")
         } else {
-            AppLogger.config.info("BridgeValidateConfig: OK")
+            AppLogger.config.notice("BridgeValidateConfig: OK")
         }
         return err?.localizedDescription
     }
