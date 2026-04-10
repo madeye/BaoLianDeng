@@ -20,8 +20,12 @@ import Testing
 
 // MARK: - BridgeValidateConfig Integration
 
-@Suite("BridgeValidateConfig")
-struct BridgeValidateConfigTests {
+// BridgeSetHomeDir is process-global state in the Go runtime, so all tests
+// that call it (or that call BridgeValidateConfig, which reads it) must run
+// serially to avoid races where one test's defer-cleanup deletes geodata
+// that another test is about to read.
+@Suite("MihomoCore Integration", .serialized)
+struct MihomoCoreIntegrationTests {
 
     @Test("Validates minimal valid config")
     func validatesMinimalConfig() {
@@ -154,12 +158,8 @@ struct BridgeValidateConfigTests {
         BridgeValidateConfig(config, &err)
         #expect(err != nil)
     }
-}
 
-// MARK: - End-to-End: URI -> Merge -> Validate via MihomoCore
-
-@Suite("URI subscription MihomoCore validation")
-struct URISubscriptionValidationTests {
+    // MARK: - End-to-End: URI -> Merge -> Validate via MihomoCore
 
     @Test("URI list generates config that passes MihomoCore validation")
     func uriListPassesValidation() {
