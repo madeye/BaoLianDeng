@@ -521,7 +521,8 @@ final class ConfigManager {
         proxy-groups:
           - name: PROXY
             type: select
-            proxies: []
+            proxies:
+              - DIRECT
 
         rules:
           # Google

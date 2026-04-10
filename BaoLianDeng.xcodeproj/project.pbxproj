@@ -59,6 +59,8 @@
 		L10101 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10101 /* InfoPlist.xcstrings */; };
 		T10008 /* PerAppProxySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10007 /* PerAppProxySettingsTests.swift */; };
 		T10022 /* BypassGroupDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10021 /* BypassGroupDetectionTests.swift */; };
+		T10031 /* ConfigParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10030 /* ConfigParserTests.swift */; };
+		T10033 /* MihomoCoreIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10032 /* MihomoCoreIntegrationTests.swift */; };
 		GEO002 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
 		GEO004 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
 /* End PBXBuildFile section */
@@ -141,6 +143,8 @@
 		T10007 /* PerAppProxySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettingsTests.swift; sourceTree = "<group>"; };
 		T10010 /* BaoLianDengTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BaoLianDengTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		T10021 /* BypassGroupDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BypassGroupDetectionTests.swift; sourceTree = "<group>"; };
+		T10030 /* ConfigParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigParserTests.swift; sourceTree = "<group>"; };
+		T10032 /* MihomoCoreIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoCoreIntegrationTests.swift; sourceTree = "<group>"; };
 		GEO001 /* geoip.metadb */ = {isa = PBXFileReference; lastKnownFileType = file; path = geoip.metadb; sourceTree = "<group>"; };
 		GEO003 /* geosite.dat */ = {isa = PBXFileReference; lastKnownFileType = file; path = geosite.dat; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -319,6 +323,8 @@
 			children = (
 				T10007 /* PerAppProxySettingsTests.swift */,
 				T10021 /* BypassGroupDetectionTests.swift */,
+				T10030 /* ConfigParserTests.swift */,
+				T10032 /* MihomoCoreIntegrationTests.swift */,
 			);
 			path = BaoLianDengTests;
 			sourceTree = "<group>";
@@ -501,6 +507,8 @@
 			files = (
 				T10008 /* PerAppProxySettingsTests.swift in Sources */,
 				T10022 /* BypassGroupDetectionTests.swift in Sources */,
+				T10031 /* ConfigParserTests.swift in Sources */,
+				T10033 /* MihomoCoreIntegrationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
