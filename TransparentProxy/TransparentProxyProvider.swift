@@ -56,21 +56,34 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
     }
 
-    // MARK: - Geodata Download
+    // MARK: - Geodata Setup
 
-    private static let geodataFiles: [(filename: String, url: String)] = [
-        ("geoip.metadb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"),
-        ("geosite.dat", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"),
+    private static let geodataFiles: [(name: String, ext: String, url: String)] = [
+        ("geoip", "metadb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"),
+        ("geosite", "dat", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"),
     ]
 
-    private func downloadGeodataIfNeeded(configDir: String) {
+    private func ensureGeodataFiles(configDir: String) {
         for file in Self.geodataFiles {
-            let dest = (configDir as NSString).appendingPathComponent(file.filename)
+            let filename = "\(file.name).\(file.ext)"
+            let dest = (configDir as NSString).appendingPathComponent(filename)
             guard !FileManager.default.fileExists(atPath: dest) else { continue }
 
-            log("Downloading \(file.filename) from jsDelivr...")
+            // Try bundled copy first
+            if let src = Bundle.main.path(forResource: file.name, ofType: file.ext) {
+                do {
+                    try FileManager.default.copyItem(atPath: src, toPath: dest)
+                    log("Copied bundled \(filename) to config dir")
+                    continue
+                } catch {
+                    log("WARNING: Failed to copy bundled \(filename): \(error.localizedDescription)")
+                }
+            }
+
+            // Fall back to downloading from jsDelivr
+            log("Downloading \(filename) from jsDelivr...")
             guard let url = URL(string: file.url) else {
-                log("WARNING: Invalid URL for \(file.filename)")
+                log("WARNING: Invalid URL for \(filename)")
                 continue
             }
 
@@ -78,20 +91,20 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
                 defer { semaphore.signal() }
                 if let error = error {
-                    self?.log("WARNING: Failed to download \(file.filename): \(error.localizedDescription)")
+                    self?.log("WARNING: Failed to download \(filename): \(error.localizedDescription)")
                     return
                 }
                 guard let data = data,
                       let httpResponse = response as? HTTPURLResponse,
                       httpResponse.statusCode == 200 else {
-                    self?.log("WARNING: Bad response downloading \(file.filename)")
+                    self?.log("WARNING: Bad response downloading \(filename)")
                     return
                 }
                 do {
                     try data.write(to: URL(fileURLWithPath: dest))
-                    self?.log("Downloaded \(file.filename) (\(data.count) bytes)")
+                    self?.log("Downloaded \(filename) (\(data.count) bytes)")
                 } catch {
-                    self?.log("WARNING: Failed to write \(file.filename): \(error.localizedDescription)")
+                    self?.log("WARNING: Failed to write \(filename): \(error.localizedDescription)")
                 }
             }
             task.resume()
@@ -145,8 +158,8 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 + "/rust_bridge.log"
             BridgeSetLogFile(rustLogPath)
 
-            // Download geodata files if not already present
-            self?.downloadGeodataIfNeeded(configDir: configDir)
+            // Ensure geodata files exist (bundled copy, then jsDelivr fallback)
+            self?.ensureGeodataFiles(configDir: configDir)
 
             self?.log("Setting home dir: \(configDir)")
             BridgeSetHomeDir(configDir)

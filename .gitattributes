@@ -1,0 +1,2 @@
+TransparentProxyMac/geosite.dat filter=lfs diff=lfs merge=lfs -text
+TransparentProxyMac/geoip.metadb filter=lfs diff=lfs merge=lfs -text

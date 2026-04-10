@@ -59,6 +59,8 @@
 		L10101 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10101 /* InfoPlist.xcstrings */; };
 		T10008 /* PerAppProxySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10007 /* PerAppProxySettingsTests.swift */; };
 		T10022 /* BypassGroupDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10021 /* BypassGroupDetectionTests.swift */; };
+		GEO002 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
+		GEO004 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -139,6 +141,8 @@
 		T10007 /* PerAppProxySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettingsTests.swift; sourceTree = "<group>"; };
 		T10010 /* BaoLianDengTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BaoLianDengTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		T10021 /* BypassGroupDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BypassGroupDetectionTests.swift; sourceTree = "<group>"; };
+		GEO001 /* geoip.metadb */ = {isa = PBXFileReference; lastKnownFileType = file; path = geoip.metadb; sourceTree = "<group>"; };
+		GEO003 /* geosite.dat */ = {isa = PBXFileReference; lastKnownFileType = file; path = geosite.dat; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -190,6 +194,8 @@
 			children = (
 				720E19EEF39E6C95A95649DA /* TransparentProxyMac.entitlements */,
 				809DB4CA51000087EE0949AF /* Info.plist */,
+				GEO001 /* geoip.metadb */,
+				GEO003 /* geosite.dat */,
 			);
 			path = TransparentProxyMac;
 			sourceTree = "<group>";
@@ -433,6 +439,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				GEO002 /* geoip.metadb in Resources */,
+				GEO004 /* geosite.dat in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
