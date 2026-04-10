@@ -566,9 +566,10 @@ struct HomeView: View {
             throw URLError(.cannotDecodeContentData)
         }
         AppLogger.log(AppLogger.network, category: "network", "fetchSubscription raw preview (first 500 chars): \(String(text.prefix(500)))")
-        let nodes = SubscriptionParser.parse(text)
-        AppLogger.log(AppLogger.network, category: "network", "fetchSubscription parsed \(nodes.count) nodes")
-        return (nodes, text)
+        let result = SubscriptionParser.parseWithYAML(text)
+        let rawContent = result.generatedYAML ?? text
+        AppLogger.log(AppLogger.network, category: "network", "fetchSubscription parsed \(result.nodes.count) nodes (generated YAML: \(result.generatedYAML != nil))")
+        return (result.nodes, rawContent)
     }
 }
 

@@ -183,6 +183,31 @@ struct ReloadResult: Identifiable {
 // MARK: - Subscription Parser
 
 enum SubscriptionParser {
+
+    /// Parse subscription text. Handles both YAML (Clash) and base64-encoded proxy URI lists.
+    /// Returns `(nodes, yaml)` where `yaml` is the generated YAML for URI lists, or nil for YAML input.
+    static func parseWithYAML(_ text: String) -> (nodes: [ProxyNode], generatedYAML: String?) {
+        // Try base64 decode first — subscription services return base64-encoded URI lists
+        if let decoded = tryBase64Decode(text) {
+            let lines = decoded.components(separatedBy: "\n").filter { !$0.isEmpty }
+            let hasURIs = lines.contains { isProxyURI($0) }
+            if hasURIs {
+                AppLogger.log(AppLogger.parser, category: "parser", "detected base64-encoded URI list (\(lines.count) lines)")
+                let (nodes, yaml) = parseURIList(lines)
+                return (nodes, yaml)
+            }
+        }
+        // Check if raw text is already a URI list (not base64 encoded)
+        let rawLines = text.components(separatedBy: "\n").filter { !$0.isEmpty }
+        if rawLines.count > 0, rawLines.allSatisfy({ isProxyURI($0) || $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+            AppLogger.log(AppLogger.parser, category: "parser", "detected raw URI list (\(rawLines.count) lines)")
+            let (nodes, yaml) = parseURIList(rawLines)
+            return (nodes, yaml)
+        }
+        // Fall back to YAML parsing
+        return (parse(text), nil)
+    }
+
     static func parse(_ text: String) -> [ProxyNode] {
         // Normalize CRLF / bare CR to LF so trailing \r doesn't break value parsing
         let normalized = text
@@ -315,5 +340,385 @@ enum SubscriptionParser {
             return nil
         }
         return ProxyNode(name: name, type: type_, server: server, port: port)
+    }
+
+    // MARK: - Base64 / URI List Support
+
+    private static func tryBase64Decode(_ text: String) -> String? {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        // Base64 text shouldn't contain proxy URI schemes or YAML markers
+        if cleaned.hasPrefix("proxies:") || cleaned.contains("://") { return nil }
+        // Pad if needed
+        var padded = cleaned
+        let remainder = padded.count % 4
+        if remainder > 0 { padded += String(repeating: "=", count: 4 - remainder) }
+        guard let data = Data(base64Encoded: padded, options: .ignoreUnknownCharacters),
+              let decoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return decoded
+    }
+
+    private static func isProxyURI(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let schemes = ["vless://", "vmess://", "trojan://", "ss://", "ssr://", "hysteria2://", "hysteria://", "tuic://"]
+        return schemes.contains { trimmed.hasPrefix($0) }
+    }
+
+    /// Parse a list of proxy URI lines into nodes + generated YAML.
+    private static func parseURIList(_ lines: [String]) -> (nodes: [ProxyNode], yaml: String) {
+        var nodes: [ProxyNode] = []
+        var yamlProxies: [String] = []
+        var seenNames: [String: Int] = [:]
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, isProxyURI(trimmed) else { continue }
+
+            if let (node, yaml) = parseProxyURI(trimmed, seenNames: &seenNames) {
+                nodes.append(node)
+                yamlProxies.append(yaml)
+            }
+        }
+
+        // Build complete YAML with proxies + proxy-groups
+        let nodeNames = nodes.map { "      - \"\($0.name)\"" }.joined(separator: "\n")
+        let fullYAML = """
+        proxies:
+        \(yamlProxies.joined(separator: "\n"))
+
+        proxy-groups:
+          - name: PROXY
+            type: select
+            proxies:
+        \(nodeNames)
+        """
+
+        AppLogger.log(AppLogger.parser, category: "parser", "URI list: parsed \(nodes.count) nodes")
+        return (nodes, fullYAML)
+    }
+
+    /// Parse a single proxy URI and return a ProxyNode + YAML snippet.
+    private static func parseProxyURI(_ uri: String, seenNames: inout [String: Int]) -> (ProxyNode, String)? {
+        guard let schemeEnd = uri.range(of: "://") else { return nil }
+        let scheme = String(uri[..<schemeEnd.lowerBound]).lowercased()
+
+        switch scheme {
+        case "vless":
+            return parseVlessURI(uri, seenNames: &seenNames)
+        case "vmess":
+            return parseVmessURI(uri, seenNames: &seenNames)
+        case "trojan":
+            return parseTrojanURI(uri, seenNames: &seenNames)
+        case "ss":
+            return parseShadowsocksURI(uri, seenNames: &seenNames)
+        default:
+            AppLogger.log(AppLogger.parser, category: "parser", "unsupported URI scheme: \(scheme)")
+            return nil
+        }
+    }
+
+    /// Deduplicate node names by appending a counter.
+    private static func uniqueName(_ name: String, seenNames: inout [String: Int]) -> String {
+        let count = seenNames[name, default: 0]
+        seenNames[name] = count + 1
+        return count == 0 ? name : "\(name) (\(count + 1))"
+    }
+
+    /// Escape a string for YAML double-quoted value.
+    private static func yamlEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    // MARK: - VLESS Parser
+
+    private static func parseVlessURI(_ uri: String, seenNames: inout [String: Int]) -> (ProxyNode, String)? {
+        // vless://uuid@server:port?params#name
+        guard let hashIdx = uri.lastIndex(of: "#") else { return nil }
+        let rawName = String(uri[uri.index(after: hashIdx)...])
+            .removingPercentEncoding ?? String(uri[uri.index(after: hashIdx)...])
+        let beforeHash = String(uri[..<hashIdx])
+
+        guard let schemeEnd = beforeHash.range(of: "://") else { return nil }
+        let afterScheme = String(beforeHash[schemeEnd.upperBound...])
+
+        let queryParts = afterScheme.components(separatedBy: "?")
+        let userHost = queryParts[0]
+        let queryString = queryParts.count > 1 ? queryParts[1] : ""
+        let params = parseQueryString(queryString)
+
+        guard let atIdx = userHost.lastIndex(of: "@") else { return nil }
+        let uuid = String(userHost[..<atIdx])
+        let hostPort = String(userHost[userHost.index(after: atIdx)...])
+        guard let colonIdx = hostPort.lastIndex(of: ":") else { return nil }
+        let server = String(hostPort[..<colonIdx])
+        guard let port = Int(hostPort[hostPort.index(after: colonIdx)...]) else { return nil }
+
+        let name = uniqueName(rawName, seenNames: &seenNames)
+        let escapedName = yamlEscape(name)
+
+        var yaml = "  - name: \"\(escapedName)\"\n"
+        yaml += "    type: vless\n"
+        yaml += "    server: \(server)\n"
+        yaml += "    port: \(port)\n"
+        yaml += "    uuid: \(uuid)\n"
+        yaml += "    udp: true\n"
+
+        if let tls = params["security"], tls == "tls" {
+            yaml += "    tls: true\n"
+            if let sni = params["sni"] { yaml += "    servername: \(sni)\n" }
+            if let fp = params["fp"] { yaml += "    client-fingerprint: \(fp)\n" }
+            if let alpn = params["alpn"] {
+                let alpnList = alpn.removingPercentEncoding?.components(separatedBy: ",") ?? [alpn]
+                yaml += "    alpn:\n"
+                for a in alpnList { yaml += "      - \(a)\n" }
+            }
+        } else if params["security"] == "reality" {
+            yaml += "    tls: true\n"
+            if let sni = params["sni"] { yaml += "    servername: \(sni)\n" }
+            if let fp = params["fp"] { yaml += "    client-fingerprint: \(fp)\n" }
+            yaml += "    reality-opts:\n"
+            if let pbk = params["pbk"] { yaml += "      public-key: \(pbk)\n" }
+            if let sid = params["sid"] { yaml += "      short-id: \(sid)\n" }
+        }
+
+        let network = params["type"] ?? "tcp"
+        yaml += "    network: \(network)\n"
+        if network == "ws" {
+            yaml += "    ws-opts:\n"
+            if let path = params["path"]?.removingPercentEncoding {
+                yaml += "      path: \"\(yamlEscape(path))\"\n"
+            }
+            if let host = params["host"] {
+                yaml += "      headers:\n"
+                yaml += "        Host: \(host)\n"
+            }
+        } else if network == "grpc" {
+            if let serviceName = params["serviceName"] {
+                yaml += "    grpc-opts:\n"
+                yaml += "      grpc-service-name: \(serviceName)\n"
+            }
+        }
+
+        if let flow = params["flow"], !flow.isEmpty {
+            yaml += "    flow: \(flow)\n"
+        }
+
+        let node = ProxyNode(name: name, type: "vless", server: server, port: port)
+        return (node, yaml)
+    }
+
+    // MARK: - VMess Parser
+
+    private static func parseVmessURI(_ uri: String, seenNames: inout [String: Int]) -> (ProxyNode, String)? {
+        // vmess://base64json
+        guard let schemeEnd = uri.range(of: "://") else { return nil }
+        let encoded = String(uri[schemeEnd.upperBound...])
+        guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        guard let server = json["add"] as? String,
+              let portVal = json["port"],
+              let uuid = json["id"] as? String else { return nil }
+
+        let port: Int
+        if let p = portVal as? Int { port = p }
+        else if let ps = portVal as? String, let p = Int(ps) { port = p }
+        else { return nil }
+
+        let rawName = (json["ps"] as? String) ?? "\(server):\(port)"
+        let name = uniqueName(rawName, seenNames: &seenNames)
+        let escapedName = yamlEscape(name)
+        let aid = (json["aid"] as? Int) ?? Int(json["aid"] as? String ?? "0") ?? 0
+        let network = (json["net"] as? String) ?? "tcp"
+        let tls = (json["tls"] as? String) ?? ""
+
+        var yaml = "  - name: \"\(escapedName)\"\n"
+        yaml += "    type: vmess\n"
+        yaml += "    server: \(server)\n"
+        yaml += "    port: \(port)\n"
+        yaml += "    uuid: \(uuid)\n"
+        yaml += "    alterId: \(aid)\n"
+        yaml += "    cipher: auto\n"
+        yaml += "    udp: true\n"
+
+        if tls == "tls" {
+            yaml += "    tls: true\n"
+            if let sni = json["sni"] as? String, !sni.isEmpty {
+                yaml += "    servername: \(sni)\n"
+            }
+        }
+
+        yaml += "    network: \(network)\n"
+        if network == "ws" {
+            yaml += "    ws-opts:\n"
+            let path = (json["path"] as? String) ?? "/"
+            yaml += "      path: \"\(yamlEscape(path))\"\n"
+            if let host = json["host"] as? String, !host.isEmpty {
+                yaml += "      headers:\n"
+                yaml += "        Host: \(host)\n"
+            }
+        } else if network == "grpc" {
+            if let serviceName = json["path"] as? String {
+                yaml += "    grpc-opts:\n"
+                yaml += "      grpc-service-name: \(serviceName)\n"
+            }
+        }
+
+        let node = ProxyNode(name: name, type: "vmess", server: server, port: port)
+        return (node, yaml)
+    }
+
+    // MARK: - Trojan Parser
+
+    private static func parseTrojanURI(_ uri: String, seenNames: inout [String: Int]) -> (ProxyNode, String)? {
+        // trojan://password@server:port?params#name
+        guard let hashIdx = uri.lastIndex(of: "#") else { return nil }
+        let rawName = String(uri[uri.index(after: hashIdx)...])
+            .removingPercentEncoding ?? String(uri[uri.index(after: hashIdx)...])
+        let beforeHash = String(uri[..<hashIdx])
+
+        guard let schemeEnd = beforeHash.range(of: "://") else { return nil }
+        let afterScheme = String(beforeHash[schemeEnd.upperBound...])
+
+        let queryParts = afterScheme.components(separatedBy: "?")
+        let userHost = queryParts[0]
+        let queryString = queryParts.count > 1 ? queryParts[1] : ""
+        let params = parseQueryString(queryString)
+
+        guard let atIdx = userHost.lastIndex(of: "@") else { return nil }
+        let password = String(userHost[..<atIdx]).removingPercentEncoding ?? String(userHost[..<atIdx])
+        let hostPort = String(userHost[userHost.index(after: atIdx)...])
+        guard let colonIdx = hostPort.lastIndex(of: ":") else { return nil }
+        let server = String(hostPort[..<colonIdx])
+        guard let port = Int(hostPort[hostPort.index(after: colonIdx)...]) else { return nil }
+
+        let name = uniqueName(rawName, seenNames: &seenNames)
+        let escapedName = yamlEscape(name)
+
+        var yaml = "  - name: \"\(escapedName)\"\n"
+        yaml += "    type: trojan\n"
+        yaml += "    server: \(server)\n"
+        yaml += "    port: \(port)\n"
+        yaml += "    password: \"\(yamlEscape(password))\"\n"
+        yaml += "    udp: true\n"
+
+        if let sni = params["sni"] { yaml += "    sni: \(sni)\n" }
+        if let fp = params["fp"] { yaml += "    client-fingerprint: \(fp)\n" }
+
+        let network = params["type"] ?? "tcp"
+        if network == "ws" {
+            yaml += "    network: ws\n"
+            yaml += "    ws-opts:\n"
+            if let path = params["path"]?.removingPercentEncoding {
+                yaml += "      path: \"\(yamlEscape(path))\"\n"
+            }
+            if let host = params["host"] {
+                yaml += "      headers:\n"
+                yaml += "        Host: \(host)\n"
+            }
+        } else if network == "grpc" {
+            yaml += "    network: grpc\n"
+            if let serviceName = params["serviceName"] {
+                yaml += "    grpc-opts:\n"
+                yaml += "      grpc-service-name: \(serviceName)\n"
+            }
+        }
+
+        let node = ProxyNode(name: name, type: "trojan", server: server, port: port)
+        return (node, yaml)
+    }
+
+    // MARK: - Shadowsocks Parser
+
+    private static func parseShadowsocksURI(_ uri: String, seenNames: inout [String: Int]) -> (ProxyNode, String)? {
+        // ss://base64(method:password)@server:port#name
+        // or ss://base64(method:password@server:port)#name (SIP002)
+        guard let schemeEnd = uri.range(of: "://") else { return nil }
+        var rest = String(uri[schemeEnd.upperBound...])
+
+        // Extract fragment (name)
+        let rawName: String
+        if let hashIdx = rest.lastIndex(of: "#") {
+            rawName = (String(rest[rest.index(after: hashIdx)...]).removingPercentEncoding) ?? ""
+            rest = String(rest[..<hashIdx])
+        } else {
+            rawName = ""
+        }
+
+        var method: String
+        var password: String
+        var server: String
+        var port: Int
+
+        if rest.contains("@") {
+            // SIP002: base64(method:password)@server:port or method:password@server:port
+            let parts = rest.components(separatedBy: "@")
+            let userInfo = parts[0]
+            let hostPort = parts[1].components(separatedBy: "?")[0] // strip query
+
+            // Decode userInfo if base64
+            let decoded: String
+            if let data = Data(base64Encoded: userInfo, options: .ignoreUnknownCharacters),
+               let d = String(data: data, encoding: .utf8) {
+                decoded = d
+            } else {
+                decoded = userInfo
+            }
+
+            guard let colonIdx = decoded.firstIndex(of: ":") else { return nil }
+            method = String(decoded[..<colonIdx])
+            password = String(decoded[decoded.index(after: colonIdx)...])
+
+            guard let portColonIdx = hostPort.lastIndex(of: ":") else { return nil }
+            server = String(hostPort[..<portColonIdx])
+            guard let p = Int(hostPort[hostPort.index(after: portColonIdx)...]) else { return nil }
+            port = p
+        } else {
+            // Legacy: ss://base64(method:password@server:port)
+            guard let data = Data(base64Encoded: rest, options: .ignoreUnknownCharacters),
+                  let decoded = String(data: data, encoding: .utf8) else { return nil }
+            guard let atIdx = decoded.lastIndex(of: "@") else { return nil }
+            let userInfo = String(decoded[..<atIdx])
+            let hostPort = String(decoded[decoded.index(after: atIdx)...])
+            guard let colonIdx = userInfo.firstIndex(of: ":") else { return nil }
+            method = String(userInfo[..<colonIdx])
+            password = String(userInfo[userInfo.index(after: colonIdx)...])
+            guard let portColonIdx = hostPort.lastIndex(of: ":") else { return nil }
+            server = String(hostPort[..<portColonIdx])
+            guard let p = Int(hostPort[hostPort.index(after: portColonIdx)...]) else { return nil }
+            port = p
+        }
+
+        let finalName = rawName.isEmpty ? "\(server):\(port)" : rawName
+        let name = uniqueName(finalName, seenNames: &seenNames)
+        let escapedName = yamlEscape(name)
+
+        var yaml = "  - name: \"\(escapedName)\"\n"
+        yaml += "    type: ss\n"
+        yaml += "    server: \(server)\n"
+        yaml += "    port: \(port)\n"
+        yaml += "    cipher: \(method)\n"
+        yaml += "    password: \"\(yamlEscape(password))\"\n"
+        yaml += "    udp: true\n"
+
+        let node = ProxyNode(name: name, type: "ss", server: server, port: port)
+        return (node, yaml)
+    }
+
+    // MARK: - Query String Helper
+
+    private static func parseQueryString(_ query: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for pair in query.components(separatedBy: "&") {
+            let kv = pair.components(separatedBy: "=")
+            guard kv.count == 2 else { continue }
+            result[kv[0]] = kv[1]
+        }
+        return result
     }
 }
