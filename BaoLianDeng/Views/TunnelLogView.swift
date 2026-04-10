@@ -16,27 +16,41 @@
 import SwiftUI
 
 struct TunnelLogView: View {
-    @State private var logText = String(localized: "No log yet — toggle the VPN to generate logs.")
+    @State private var logLines: [String] = []
     @State private var autoRefresh = true
+    @State private var lastDataHash = 0
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    private let placeholder = String(localized: "No log yet — toggle the VPN to generate logs.")
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                Text(logText)
-                    .font(.system(.caption2, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .textSelection(.enabled)
+                if logLines.isEmpty {
+                    Text(placeholder)
+                        .font(.system(.caption2, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .foregroundStyle(.secondary)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(logLines.enumerated()), id: \.offset) { index, line in
+                            Text(line)
+                                .font(.system(.caption2, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal)
+                                .padding(.vertical, 1)
+                                .textSelection(.enabled)
+                                .id(index)
+                        }
+                    }
+                }
                 Color.clear
                     .frame(height: 1)
                     .id("bottom")
             }
-            .onChange(of: logText) {
+            .onChange(of: logLines.count) {
                 if autoRefresh {
-                    withAnimation {
-                        proxy.scrollTo("bottom", anchor: .bottom)
-                    }
+                    proxy.scrollTo("bottom", anchor: .bottom)
                 }
             }
         }
@@ -46,7 +60,7 @@ struct TunnelLogView: View {
                 HStack(spacing: 12) {
                     Button {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(logText, forType: .string)
+                        NSPasteboard.general.setString(logLines.joined(separator: "\n"), forType: .string)
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }
@@ -66,9 +80,12 @@ struct TunnelLogView: View {
     private func loadLog() {
         VPNManager.shared.sendMessage(["action": "get_log"]) { data in
             DispatchQueue.main.async {
-                if let data = data, let text = String(data: data, encoding: .utf8), !text.isEmpty {
-                    logText = text
-                }
+                guard let data = data, let text = String(data: data, encoding: .utf8),
+                      !text.isEmpty else { return }
+                let hash = text.hashValue
+                guard hash != lastDataHash else { return }
+                lastDataHash = hash
+                logLines = text.components(separatedBy: .newlines)
             }
         }
     }
