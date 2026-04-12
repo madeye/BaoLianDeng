@@ -18,11 +18,11 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 ```
 ┌─────────────────────────────────────────────┐
 │             macOS App (SwiftUI)             │
-│  ┌──────────┬────────┬───────┬───────────┐ │
-│  │  Home    │ Config │ Data  │ Settings  │ │
-│  │ Subs &   │ YAML   │Charts │ Groups /  │ │
-│  │  Nodes   │ Editor │& Stats│ Logs      │ │
-│  └──────────┴────────┴───────┴───────────┘ │
+│  ┌──────────┬────────┬───────┬───────────┐  │
+│  │  Home    │ Config │ Data  │ Settings  │  │
+│  │ Subs &   │ YAML   │Charts │ Groups /  │  │
+│  │  Nodes   │ Editor │& Stats│ Logs      │  │
+│  └──────────┴────────┴───────┴───────────┘  │
 │  ┌───────────────────────────────────────┐  │
 │  │  VPNManager (NETunnelProviderManager) │  │
 │  └──────────────────┬────────────────────┘  │
