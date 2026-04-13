@@ -199,8 +199,8 @@ echo ""
 echo "--- Phase 7: Install in VM ---"
 
 
-echo "Copying app to VM..."
-vm_copy_to "$VM_IP" "$APP_BUILD_PATH" "/Applications/"
+echo "Installing app in VM..."
+vm_install_app "$VM_IP" "$APP_BUILD_PATH"
 
 echo "Copying test config to VM..."
 vm_copy_to "$VM_IP" "$SCRIPT_DIR/config/test-config.yaml" "/tmp/e2e-test-config.yaml"

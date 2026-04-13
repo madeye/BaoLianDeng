@@ -53,6 +53,22 @@ vm_copy_to() {
     scp $VM_SSH_OPTS -r "$local_path" "$VM_USER@$vm_ip:$remote_path"
 }
 
+# Install an .app bundle to /Applications/ via sudo (scp can't write there directly)
+vm_install_app() {
+    local vm_ip="$1"
+    local local_app_path="$2"
+    local app_name
+    app_name=$(basename "$local_app_path")
+    local tmp_path="/tmp/$app_name"
+
+    # Remove any previous copy in /tmp and /Applications
+    vm_exec "$vm_ip" "rm -rf '$tmp_path' && sudo rm -rf '/Applications/$app_name'"
+
+    # scp to /tmp (user-writable), then sudo mv to /Applications
+    scp $VM_SSH_OPTS -r "$local_app_path" "$VM_USER@$vm_ip:$tmp_path"
+    vm_exec "$vm_ip" "sudo mv '$tmp_path' /Applications/"
+}
+
 wait_for_ssh() {
     local vm_ip="$1"
     local max_wait="${2:-120}"

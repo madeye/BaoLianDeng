@@ -145,7 +145,7 @@ fi
 # --- Phase 6: Install ---
 echo ""
 echo "--- Phase 6: Install in VM ---"
-vm_copy_to "$VM_IP" "$APP_BUILD_PATH" "/Applications/"
+vm_install_app "$VM_IP" "$APP_BUILD_PATH"
 vm_copy_to "$VM_IP" "$SCRIPT_DIR/config/test-config.yaml" "/tmp/e2e-test-config.yaml"
 vm_copy_to "$VM_IP" "$CERT_DIR/cert.pem" "/tmp/stress-test-cert.pem"
 vm_copy_to "$VM_IP" "$SCRIPT_DIR/vm-stability-test.sh" "/tmp/vm-stability-test.sh"
