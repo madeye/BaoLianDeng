@@ -142,6 +142,9 @@ fi
 echo ""
 echo "--- Phase 5: Install in VM ---"
 
+# Kill any auto-launched app instance from the base VM before replacing the binary
+vm_exec "$VM_IP" "killall BaoLianDeng 2>/dev/null || true"
+
 echo "Installing app in VM..."
 vm_install_app "$VM_IP" "$APP_BUILD_PATH"
 

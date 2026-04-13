@@ -154,6 +154,15 @@ final class VPNManager: NSObject, ObservableObject {
                         self.dbg("loadManager: manager ready")
                         self.manager = mgr
                         self.observeStatus()
+                        // Auto-connect: if /tmp/.bld-autoconnect exists, start VPN
+                        // Used by E2E tests to trigger connection without UI automation
+                        let sentinelPath = "/tmp/.bld-autoconnect"
+                        if FileManager.default.fileExists(atPath: sentinelPath),
+                           self.status == .disconnected {
+                            self.dbg("autoConnect: starting VPN")
+                            try? FileManager.default.removeItem(atPath: sentinelPath)
+                            self.start()
+                        }
                     }
                 }
             }
