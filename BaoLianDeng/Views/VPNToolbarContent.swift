@@ -18,7 +18,6 @@ import NetworkExtension
 
 struct VPNToolbarContent: ToolbarContent {
     @EnvironmentObject var vpnManager: VPNManager
-    @AppStorage("selectedNode") private var selectedNode: String?
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .principal) {
@@ -31,8 +30,8 @@ struct VPNToolbarContent: ToolbarContent {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                if let node = selectedNode, !node.isEmpty {
-                    Text(node)
+                if let name = selectedSubscriptionName, !name.isEmpty {
+                    Text(name)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -49,6 +48,21 @@ struct VPNToolbarContent: ToolbarContent {
                 .controlSize(.small)
             }
         }
+    }
+
+    private var selectedSubscriptionName: String? {
+        let defaults = AppConstants.sharedDefaults
+        guard let idStr = defaults.string(forKey: "selectedSubscriptionID"),
+              let data = defaults.data(forKey: "subscriptions") else {
+            return nil
+        }
+        struct Sub: Decodable { var id: UUID; var name: String }
+        guard let subs = try? JSONDecoder().decode([Sub].self, from: data),
+              let selectedID = UUID(uuidString: idStr),
+              let sub = subs.first(where: { $0.id == selectedID }) else {
+            return nil
+        }
+        return sub.name
     }
 
     private var statusText: String {
