@@ -35,6 +35,7 @@ struct HomeView: View {
     @State private var showExtensionHelp = false
     @State private var showFileImporter = false
     @State private var testingNodes: Set<String> = []
+    @State private var proxyGroupsVM = ProxyGroupsViewModel()
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -49,6 +50,11 @@ struct HomeView: View {
                 ) {
                     subscriptionSections
                 }
+
+                ProxyGroupsSection(
+                    viewModel: proxyGroupsVM,
+                    isVpnConnected: vpnManager.isConnected
+                )
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
             .onAppear { scrollProxy = proxy }
@@ -115,6 +121,22 @@ struct HomeView: View {
         .onAppear {
             loadSubscriptions()
             loadCurrentMode()
+            proxyGroupsVM.loadSelections()
+            loadProxyGroups()
+        }
+        .onChange(of: vpnManager.isConnected) { _, isConnected in
+            if isConnected {
+                // Reload proxy groups from API when VPN connects
+                loadProxyGroups()
+                // Replay saved selections to the engine
+                Task {
+                    await proxyGroupsVM.replaySelectionsToEngine()
+                }
+            }
+        }
+        .onChange(of: selectedSubscriptionID) { _, _ in
+            // Reload proxy groups when subscription changes
+            loadProxyGroups()
         }
         .overlay {
             if showToast {
@@ -474,6 +496,22 @@ struct HomeView: View {
                let proxyMode = ProxyMode(rawValue: mode) {
                 selectedMode = proxyMode
             }
+        }
+    }
+
+    private func loadProxyGroups() {
+        // Get fallback YAML from selected subscription
+        var fallbackYAML: String?
+        if let selID = selectedSubscriptionID,
+           let sub = subscriptions.first(where: { $0.id == selID }) {
+            fallbackYAML = sub.rawContent
+        }
+
+        Task {
+            await proxyGroupsVM.load(
+                vpnConnected: vpnManager.isConnected,
+                fallbackYAML: fallbackYAML
+            )
         }
     }
 

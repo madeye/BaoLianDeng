@@ -35,6 +35,9 @@
 		A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* TrafficStore.swift */; };
 		B10063 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* MihomoAPI.swift */; };
+		B10064 /* ProxiesResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10210 /* ProxiesResult.swift */; };
+		B10065 /* ProxyGroupsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10211 /* ProxyGroupsViewModel.swift */; };
+		B10071 /* ProxyGroupsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10212 /* ProxyGroupsSection.swift */; };
 		B10067 /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10066 /* ConnectionsView.swift */; };
 		B10069 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10068 /* DiagnosticsView.swift */; };
 		AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* TunnelLogView.swift */; };
@@ -135,6 +138,9 @@
 		B10055 /* ConfigListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigListViews.swift; sourceTree = "<group>"; };
 		B10060 /* TrafficStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStore.swift; sourceTree = "<group>"; };
 		B10062 /* MihomoAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPI.swift; sourceTree = "<group>"; };
+		B10210 /* ProxiesResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxiesResult.swift; sourceTree = "<group>"; };
+		B10211 /* ProxyGroupsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyGroupsViewModel.swift; sourceTree = "<group>"; };
+		B10212 /* ProxyGroupsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyGroupsSection.swift; sourceTree = "<group>"; };
 		B10066 /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
 		B10068 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		B10070 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
@@ -322,6 +328,7 @@
 				B10208 /* VPNToolbarContent.swift */,
 				B10066 /* ConnectionsView.swift */,
 				B10068 /* DiagnosticsView.swift */,
+				B10212 /* ProxyGroupsSection.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -331,6 +338,8 @@
 			children = (
 				B10062 /* MihomoAPI.swift */,
 				B10060 /* TrafficStore.swift */,
+				B10210 /* ProxiesResult.swift */,
+				B10211 /* ProxyGroupsViewModel.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -500,6 +509,9 @@
 				B10056 /* ConfigListViews.swift in Sources */,
 				A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */,
 				B10063 /* MihomoAPI.swift in Sources */,
+				B10064 /* ProxiesResult.swift in Sources */,
+				B10065 /* ProxyGroupsViewModel.swift in Sources */,
+				B10071 /* ProxyGroupsSection.swift in Sources */,
 				B10067 /* ConnectionsView.swift in Sources */,
 				B10069 /* DiagnosticsView.swift in Sources */,
 				C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */,
@@ -574,7 +586,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 47;
+				CURRENT_PROJECT_VERSION = 48;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -613,7 +625,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 47;
+				CURRENT_PROJECT_VERSION = 48;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

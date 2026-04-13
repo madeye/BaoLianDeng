@@ -193,6 +193,33 @@ enum MihomoAPI {
         return groups.sorted { $0.name < $1.name }
     }
 
+    /// Fetch proxies result with groups and leaf proxies from /proxies endpoint.
+    /// Use this for the ProxyGroupsSection UI.
+    static func fetchProxiesResult() async throws -> ProxiesResult {
+        let data = try await get("/proxies")
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw MihomoAPIError.decodingFailed
+        }
+        return ProxiesResult.fromAPI(json)
+    }
+
+    /// Select a proxy node within a group via PUT /proxies/{group}
+    static func selectProxy(group: String, name: String) async throws {
+        guard let encoded = group.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/proxies/\(encoded)") else {
+            throw MihomoAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, [200, 204].contains(http.statusCode) else {
+            throw MihomoAPIError.requestFailed("selectProxy failed")
+        }
+    }
+
     // MARK: - Delay Testing
 
     static func testGroupDelay(group: String, url: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> [MihomoDelayResult] {
