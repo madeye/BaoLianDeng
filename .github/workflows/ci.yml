@@ -106,7 +106,7 @@ jobs:
           FIREBASE_PLIST_BASE64: ${{ secrets.FIREBASE_PLIST_BASE64 }}
         run: scripts/provision-firebase.sh
 
-      - name: Run Tests
+      - name: Run Unit Tests
         run: |
           xcodebuild test \
             -project BaoLianDeng.xcodeproj \
@@ -116,7 +116,20 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            -only-testing:BaoLianDengTests | xcpretty && exit ${PIPESTATUS[0]}
+            -only-testing:BaoLianDengTests \
+            -skip-testing:BaoLianDengTests/ProxyEngineIntegrationTests | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Run Integration Tests
+        run: |
+          xcodebuild test \
+            -project BaoLianDeng.xcodeproj \
+            -scheme BaoLianDeng \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -only-testing:BaoLianDengTests/ProxyEngineIntegrationTests | xcpretty && exit ${PIPESTATUS[0]}
 
   swiftlint:
     name: SwiftLint

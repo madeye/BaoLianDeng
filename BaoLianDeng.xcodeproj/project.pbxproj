@@ -66,6 +66,9 @@
 		T10031 /* ConfigParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10030 /* ConfigParserTests.swift */; };
 		T10033 /* MihomoCoreIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10032 /* MihomoCoreIntegrationTests.swift */; };
 		T10035 /* MihomoAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10034 /* MihomoAPITests.swift */; };
+		T10041 /* ProxyEngineIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10040 /* ProxyEngineIntegrationTests.swift */; };
+		T10045 /* TestConfigs.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10044 /* TestConfigs.swift */; };
+		T10047 /* ProxyEngineHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10046 /* ProxyEngineHelper.swift */; };
 		GEO002 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
 		GEO004 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
 /* End PBXBuildFile section */
@@ -155,6 +158,9 @@
 		T10030 /* ConfigParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigParserTests.swift; sourceTree = "<group>"; };
 		T10032 /* MihomoCoreIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoCoreIntegrationTests.swift; sourceTree = "<group>"; };
 		T10034 /* MihomoAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPITests.swift; sourceTree = "<group>"; };
+		T10040 /* ProxyEngineIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineIntegrationTests.swift; sourceTree = "<group>"; };
+		T10044 /* TestConfigs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestConfigs.swift; sourceTree = "<group>"; };
+		T10046 /* ProxyEngineHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineHelper.swift; sourceTree = "<group>"; };
 		GEO001 /* geoip.metadb */ = {isa = PBXFileReference; lastKnownFileType = file; path = geoip.metadb; sourceTree = "<group>"; };
 		GEO003 /* geosite.dat */ = {isa = PBXFileReference; lastKnownFileType = file; path = geosite.dat; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -335,13 +341,24 @@
 		T10009 /* BaoLianDengTests */ = {
 			isa = PBXGroup;
 			children = (
+				T10050 /* Utilities */,
 				T10007 /* PerAppProxySettingsTests.swift */,
 				T10021 /* BypassGroupDetectionTests.swift */,
 				T10030 /* ConfigParserTests.swift */,
 				T10032 /* MihomoCoreIntegrationTests.swift */,
 				T10034 /* MihomoAPITests.swift */,
+				T10040 /* ProxyEngineIntegrationTests.swift */,
 			);
 			path = BaoLianDengTests;
+			sourceTree = "<group>";
+		};
+		T10050 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				T10044 /* TestConfigs.swift */,
+				T10046 /* ProxyEngineHelper.swift */,
+			);
+			path = Utilities;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -529,6 +546,9 @@
 				T10031 /* ConfigParserTests.swift in Sources */,
 				T10033 /* MihomoCoreIntegrationTests.swift in Sources */,
 				T10035 /* MihomoAPITests.swift in Sources */,
+				T10041 /* ProxyEngineIntegrationTests.swift in Sources */,
+				T10045 /* TestConfigs.swift in Sources */,
+				T10047 /* ProxyEngineHelper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
