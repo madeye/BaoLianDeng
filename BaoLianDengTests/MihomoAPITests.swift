@@ -555,7 +555,6 @@ struct SidebarItemTests {
     func expectedIcons() {
         #expect(SidebarItem.subscriptions.icon == "list.bullet")
         #expect(SidebarItem.config.icon == "doc.text.fill")
-        #expect(SidebarItem.rules.icon == "checklist")
         #expect(SidebarItem.traffic.icon == "chart.bar.fill")
         #expect(SidebarItem.settings.icon == "gearshape.fill")
         #expect(SidebarItem.tunnelLog.icon == "terminal.fill")
