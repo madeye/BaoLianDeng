@@ -143,8 +143,6 @@ struct HomeView: View {
 
     private var extensionHelpMessage: String {
         switch vpnManager.systemExtensionInstallState {
-        case .awaitingUserApproval:
-            return "System Settings has been opened.\n\nPlease go to Network Extensions and toggle on BaoLianDeng to enable the VPN."
         case .rebootRequired:
             return "The system extension install finished, but macOS requires a reboot before BaoLianDeng can start the VPN."
         case .failed:

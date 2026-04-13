@@ -135,7 +135,8 @@ final class VPNManager: NSObject, ObservableObject {
                 }
 
                 switch self.systemExtensionInstallState {
-                case .awaitingUserApproval, .rebootRequired where !forceRetry:
+                case .awaitingUserApproval where !forceRetry,
+                     .rebootRequired where !forceRetry:
                     self.extensionEnabled = false
                 case .failed, .awaitingUserApproval, .rebootRequired:
                     self.activateSystemExtension(force: true)
@@ -639,7 +640,6 @@ extension VPNManager: OSSystemExtensionRequestDelegate {
         case .willCompleteAfterReboot:
             DispatchQueue.main.async {
                 self.updateInstallState(.rebootRequired)
-                self.errorMessage = "System extension will activate after reboot"
             }
         @unknown default:
             loadManager()
