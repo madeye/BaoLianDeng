@@ -26,6 +26,7 @@ enum EditorMode: String, CaseIterable {
 }
 
 struct ConfigEditorView: View {
+    @EnvironmentObject var vpnManager: VPNManager
     @State private var configText = ""
     @State private var proxyGroups: [EditableProxyGroup] = []
     @State private var rules: [EditableRule] = []
@@ -43,6 +44,8 @@ struct ConfigEditorView: View {
     @State private var editorMode: EditorMode = .structured
     @State private var validationErrors: [YAMLError] = []
     @State private var showValidationErrors = false
+    @State private var showReloadPrompt = false
+    @State private var isReloading = false
 
     private var isSub: Bool {
         if case .subscription = source { return true }
@@ -65,6 +68,14 @@ struct ConfigEditorView: View {
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: { Text(errorMessage) }
+        .alert("Apply Changes Now?", isPresented: $showReloadPrompt) {
+            Button("Later", role: .cancel) {}
+            Button("Reload") {
+                Task { await reloadConfig() }
+            }
+        } message: {
+            Text("Config saved. Reload now to apply changes to the running VPN? This will briefly interrupt connections.")
+        }
         .overlay { if showSaved { savedToast } }
         .onAppear {
             guard !isLoaded else { return }
@@ -189,6 +200,9 @@ struct ConfigEditorView: View {
         do {
             try ConfigManager.shared.saveConfig(configText)
             showSavedToast()
+            if vpnManager.isConnected {
+                showReloadPrompt = true
+            }
         } catch {
             errorMessage = error.localizedDescription
             showError = true
@@ -240,11 +254,29 @@ struct ConfigEditorView: View {
                 configText = yaml
             }
             showSavedToast()
+            if vpnManager.isConnected {
+                showReloadPrompt = true
+            }
         } catch {
             errorMessage = error.localizedDescription
             showError = true
         }
         isSaving = false
+    }
+
+    private func reloadConfig() async {
+        isReloading = true
+        do {
+            try await MihomoAPI.reloadConfig()
+        } catch {
+            await MainActor.run {
+                errorMessage = "Reload failed: \(error.localizedDescription)"
+                showError = true
+            }
+        }
+        await MainActor.run {
+            isReloading = false
+        }
     }
 
     private func resetConfig() {
@@ -268,4 +300,5 @@ struct ConfigEditorView: View {
 
 #Preview {
     ConfigEditorView()
+        .environmentObject(VPNManager.shared)
 }

@@ -97,7 +97,13 @@ struct ProxyGroupsListView: View {
 
 // MARK: - Rules List View
 
+enum RulesViewMode: String, CaseIterable {
+    case configured = "Configured"
+    case active = "Active"
+}
+
 struct RulesListView: View {
+    @EnvironmentObject var vpnManager: VPNManager
     @Binding var rules: [EditableRule]
     let subscriptionRules: [EditableRule]
     let proxyGroupNames: [String]
@@ -106,6 +112,10 @@ struct RulesListView: View {
     @State private var searchText = ""
     @State private var showAddRule = false
     @State private var editingRuleIndex: Int?
+    @State private var viewMode: RulesViewMode = .configured
+    @State private var activeRules: [MihomoRule] = []
+    @State private var isLoadingActive = false
+    @State private var activeError: String?
 
     private var sourceRules: [EditableRule] {
         isSub ? subscriptionRules : rules
@@ -121,7 +131,96 @@ struct RulesListView: View {
         }
     }
 
+    private var filteredActiveRules: [MihomoRule] {
+        guard !searchText.isEmpty else { return activeRules }
+        let query = searchText.lowercased()
+        return activeRules.filter {
+            $0.type.lowercased().contains(query)
+                || $0.payload.lowercased().contains(query)
+                || $0.proxy.lowercased().contains(query)
+        }
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            if !isSub {
+                Picker("View", selection: $viewMode) {
+                    ForEach(RulesViewMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
+
+            if viewMode == .active && !isSub {
+                activeRulesList
+            } else {
+                configuredRulesList
+            }
+        }
+        .searchable(text: $searchText, prompt: "Search rules")
+        .navigationTitle(navigationTitle)
+        .toolbar { toolbarContent }
+        .sheet(isPresented: $showAddRule) {
+            AddRuleSheet(groupNames: proxyGroupNames) { rules.append($0) }
+        }
+        .sheet(isPresented: Binding(
+            get: { editingRuleIndex != nil },
+            set: { if !$0 { editingRuleIndex = nil } }
+        )) {
+            if let index = editingRuleIndex {
+                EditRuleSheet(
+                    groupNames: proxyGroupNames,
+                    rule: rules[index]
+                ) { updated in
+                    rules[index] = updated
+                }
+            }
+        }
+        .onChange(of: viewMode) { _, newMode in
+            if newMode == .active && vpnManager.isConnected {
+                Task { await loadActiveRules() }
+            }
+        }
+        .onChange(of: vpnManager.isConnected) { _, connected in
+            if !connected && viewMode == .active {
+                activeRules = []
+            }
+        }
+    }
+
+    private var navigationTitle: String {
+        if viewMode == .active && !isSub {
+            return "Rules (\(activeRules.count))"
+        }
+        return "Rules (\(sourceRules.count))"
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if viewMode == .active && !isSub {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    Task { await loadActiveRules() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(!vpnManager.isConnected || isLoadingActive)
+            }
+        } else if !isSub {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    showAddRule = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+    }
+
+    private var configuredRulesList: some View {
         List {
             if isSub {
                 ForEach(filteredRules) { RuleRowView(rule: $0) }
@@ -149,37 +248,79 @@ struct RulesListView: View {
                 }
             }
         }
-        .searchable(text: $searchText, prompt: "Search rules")
-        .navigationTitle("Rules (\(sourceRules.count))")
-        .toolbar {
-            if !isSub {
-                ToolbarItem(placement: .automatic) {
-                    Button {
-                        showAddRule = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
+    }
+
+    @ViewBuilder
+    private var activeRulesList: some View {
+        if !vpnManager.isConnected {
+            ContentUnavailableView(
+                "VPN Not Connected",
+                systemImage: "shield.slash",
+                description: Text("Connect VPN to view active rules")
+            )
+        } else if isLoadingActive && activeRules.isEmpty {
+            ProgressView("Loading rules...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error = activeError, activeRules.isEmpty {
+            ContentUnavailableView(
+                "Failed to Load",
+                systemImage: "exclamationmark.triangle",
+                description: Text(error)
+            )
+        } else if activeRules.isEmpty {
+            ContentUnavailableView(
+                "No Active Rules",
+                systemImage: "checklist",
+                description: Text("No rules loaded in proxy engine")
+            )
+        } else {
+            List {
+                ForEach(filteredActiveRules) { rule in
+                    activeRuleRow(rule)
                 }
             }
         }
-        .sheet(isPresented: $showAddRule) {
-            AddRuleSheet(
-                groupNames: proxyGroupNames
-            ) { rules.append($0) }
-        }
-        .sheet(isPresented: Binding(
-            get: { editingRuleIndex != nil },
-            set: { if !$0 { editingRuleIndex = nil } }
-        )) {
-            if let index = editingRuleIndex {
-                EditRuleSheet(
-                    groupNames: proxyGroupNames,
-                    rule: rules[index]
-                ) { updated in
-                    rules[index] = updated
-                }
+    }
+
+    private func activeRuleRow(_ rule: MihomoRule) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rule.payload)
+                    .font(.body)
+                    .textSelection(.enabled)
+                Text(rule.type)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
+            Spacer()
+            Text(rule.proxy)
+                .font(.caption)
+                .foregroundStyle(proxyColor(rule.proxy))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(proxyColor(rule.proxy).opacity(0.1))
+                .clipShape(Capsule())
         }
+        .padding(.vertical, 2)
+    }
+
+    private func proxyColor(_ proxy: String) -> Color {
+        switch proxy {
+        case "DIRECT": return .green
+        case "REJECT": return .red
+        default: return .blue
+        }
+    }
+
+    private func loadActiveRules() async {
+        isLoadingActive = true
+        activeError = nil
+        do {
+            activeRules = try await MihomoAPI.fetchRules()
+        } catch {
+            activeError = error.localizedDescription
+        }
+        isLoadingActive = false
     }
 
     private var filteredIndices: [Int] {

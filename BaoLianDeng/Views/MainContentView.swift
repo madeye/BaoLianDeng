@@ -46,8 +46,6 @@ struct MainContentView: View {
             HomeView()
         case .config:
             ConfigEditorView()
-        case .rules:
-            RulesView()
         case .traffic:
             TrafficView()
         case .settings:

@@ -35,7 +35,6 @@
 		A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* TrafficStore.swift */; };
 		B10063 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* MihomoAPI.swift */; };
-		B10065 /* RulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10064 /* RulesView.swift */; };
 		B10067 /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10066 /* ConnectionsView.swift */; };
 		B10069 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10068 /* DiagnosticsView.swift */; };
 		AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* TunnelLogView.swift */; };
@@ -136,7 +135,6 @@
 		B10055 /* ConfigListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigListViews.swift; sourceTree = "<group>"; };
 		B10060 /* TrafficStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStore.swift; sourceTree = "<group>"; };
 		B10062 /* MihomoAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPI.swift; sourceTree = "<group>"; };
-		B10064 /* RulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RulesView.swift; sourceTree = "<group>"; };
 		B10066 /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
 		B10068 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		B10070 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
@@ -322,7 +320,6 @@
 				B10204 /* MainContentView.swift */,
 				B10206 /* SidebarView.swift */,
 				B10208 /* VPNToolbarContent.swift */,
-				B10064 /* RulesView.swift */,
 				B10066 /* ConnectionsView.swift */,
 				B10068 /* DiagnosticsView.swift */,
 			);
@@ -503,7 +500,6 @@
 				B10056 /* ConfigListViews.swift in Sources */,
 				A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */,
 				B10063 /* MihomoAPI.swift in Sources */,
-				B10065 /* RulesView.swift in Sources */,
 				B10067 /* ConnectionsView.swift in Sources */,
 				B10069 /* DiagnosticsView.swift in Sources */,
 				C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */,

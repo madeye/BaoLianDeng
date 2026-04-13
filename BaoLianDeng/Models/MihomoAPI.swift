@@ -257,6 +257,24 @@ enum MihomoAPI {
         }
     }
 
+    /// Reload config from disk. Forces mihomo to re-read config.yaml and apply changes.
+    /// This will close existing connections.
+    static func reloadConfig() async throws {
+        guard let url = URL(string: "\(baseURL)/configs?force=true") else {
+            throw MihomoAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Empty path means reload current config
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["path": ""])
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw MihomoAPIError.requestFailed("Failed to reload config")
+        }
+    }
+
     static func switchMode(_ mode: String) async throws {
         try await patchConfig(["mode": mode])
     }
