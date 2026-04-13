@@ -18,6 +18,7 @@ import SwiftUI
 enum SidebarItem: String, CaseIterable, Identifiable {
     case subscriptions
     case config
+    case rules
     case traffic
     case settings
     case tunnelLog
@@ -28,6 +29,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         switch self {
         case .subscriptions: return "Subscriptions"
         case .config: return "Config Editor"
+        case .rules: return "Rules"
         case .traffic: return "Traffic & Data"
         case .settings: return "Settings"
         case .tunnelLog: return "Tunnel Log"
@@ -38,6 +40,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         switch self {
         case .subscriptions: return "list.bullet"
         case .config: return "doc.text.fill"
+        case .rules: return "checklist"
         case .traffic: return "chart.bar.fill"
         case .settings: return "gearshape.fill"
         case .tunnelLog: return "terminal.fill"
@@ -55,6 +58,8 @@ struct SidebarView: View {
                     .tag(SidebarItem.subscriptions)
                 Label(SidebarItem.config.label, systemImage: SidebarItem.config.icon)
                     .tag(SidebarItem.config)
+                Label(SidebarItem.rules.label, systemImage: SidebarItem.rules.icon)
+                    .tag(SidebarItem.rules)
                 Label(SidebarItem.traffic.label, systemImage: SidebarItem.traffic.icon)
                     .tag(SidebarItem.traffic)
             }

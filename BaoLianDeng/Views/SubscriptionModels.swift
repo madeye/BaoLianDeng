@@ -523,9 +523,9 @@ enum SubscriptionParser {
               let uuid = json["id"] as? String else { return nil }
 
         let port: Int
-        if let p = portVal as? Int { port = p }
-        else if let ps = portVal as? String, let p = Int(ps) { port = p }
-        else { return nil }
+        if let p = portVal as? Int { port = p
+        } else if let ps = portVal as? String, let p = Int(ps) { port = p
+        } else { return nil }
 
         let rawName = (json["ps"] as? String) ?? "\(server):\(port)"
         let name = uniqueName(rawName, seenNames: &seenNames)

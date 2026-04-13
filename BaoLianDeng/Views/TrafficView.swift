@@ -23,6 +23,7 @@ struct TrafficView: View {
     var body: some View {
         List {
             sessionSection
+            connectionsSection
             chartSection
             monthlySummarySection
             subscriptionUsageSection
@@ -76,6 +77,28 @@ struct TrafficView: View {
                 Text(formatBytes(trafficStore.sessionTotal))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+            }
+        }
+    }
+
+    // MARK: - Active Connections
+
+    private var connectionsSection: some View {
+        Section {
+            NavigationLink {
+                ConnectionsView()
+                    .environmentObject(vpnManager)
+            } label: {
+                HStack {
+                    Label("Active Connections", systemImage: "network")
+                    Spacer()
+                    if vpnManager.isConnected {
+                        Text("\(trafficStore.activeProxyCount) proxy / \(trafficStore.activeTotalCount) total")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .font(.caption)
+                    }
+                }
             }
         }
     }

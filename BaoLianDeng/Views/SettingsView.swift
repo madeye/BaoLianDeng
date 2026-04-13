@@ -49,6 +49,13 @@ struct SettingsView: View {
 
             PerAppProxySection()
 
+            Section("Diagnostics") {
+                NavigationLink("Network Diagnostics") {
+                    DiagnosticsView()
+                        .environmentObject(vpnManager)
+                }
+            }
+
             Section("System Extension") {
                 Button("Uninstall System Extension") {
                     vpnManager.stop()

@@ -19,6 +19,8 @@ struct NodeRow: View {
     let node: ProxyNode
     let isSelected: Bool
     let onSelect: () -> Void
+    var isTesting: Bool = false
+    var onTestDelay: (() -> Void)?
 
     var body: some View {
         Button(action: onSelect) {
@@ -39,8 +41,11 @@ struct NodeRow: View {
 
                 Spacer()
 
-                if let delay = node.delay {
-                    Text("\(delay) ms")
+                if isTesting {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if let delay = node.delay {
+                    Text(delay > 0 ? "\(delay) ms" : String(localized: "timeout"))
                         .font(.caption)
                         .foregroundStyle(delayColor(delay))
                 }
@@ -55,9 +60,19 @@ struct NodeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let onTestDelay {
+                Button {
+                    onTestDelay()
+                } label: {
+                    Label("Test Latency", systemImage: "bolt.horizontal")
+                }
+            }
+        }
     }
 
     private func delayColor(_ delay: Int) -> Color {
+        if delay <= 0 { return .gray }
         if delay < 200 { return .green }
         if delay < 500 { return .orange }
         return .red

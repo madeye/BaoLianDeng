@@ -70,10 +70,10 @@ struct MihomoCoreIntegrationTests {
     }
 
     @Test("Validates config with GEOIP rule when geodata available")
-    func validatesGeoIPRule() {
+    func validatesGeoIPRule() throws {
         // Ensure geodata files exist in a temp directory
         let tempDir = NSTemporaryDirectory() + "bld-test-\(UUID().uuidString)"
-        try! FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: tempDir) }
 
         ConfigManager.shared.ensureGeodataFiles(configDir: tempDir)
@@ -162,10 +162,10 @@ struct MihomoCoreIntegrationTests {
     // MARK: - End-to-End: URI -> Merge -> Validate via MihomoCore
 
     @Test("URI list generates config that passes MihomoCore validation")
-    func uriListPassesValidation() {
+    func uriListPassesValidation() throws {
         // Setup geodata for GEOIP rules
         let tempDir = NSTemporaryDirectory() + "bld-test-\(UUID().uuidString)"
-        try! FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: tempDir) }
         ConfigManager.shared.ensureGeodataFiles(configDir: tempDir)
         BridgeSetHomeDir(tempDir)
@@ -218,9 +218,9 @@ struct MihomoCoreIntegrationTests {
     }
 
     @Test("Default config passes MihomoCore validation")
-    func defaultConfigPassesValidation() {
+    func defaultConfigPassesValidation() throws {
         let tempDir = NSTemporaryDirectory() + "bld-test-\(UUID().uuidString)"
-        try! FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: tempDir) }
         ConfigManager.shared.ensureGeodataFiles(configDir: tempDir)
         BridgeSetHomeDir(tempDir)

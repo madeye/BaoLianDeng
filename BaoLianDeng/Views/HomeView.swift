@@ -34,6 +34,7 @@ struct HomeView: View {
     @State private var showToast: Bool = false
     @State private var showExtensionHelp = false
     @State private var showFileImporter = false
+    @State private var testingNodes: Set<String> = []
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -113,6 +114,7 @@ struct HomeView: View {
         }
         .onAppear {
             loadSubscriptions()
+            loadCurrentMode()
         }
         .overlay {
             if showToast {
@@ -185,7 +187,15 @@ struct HomeView: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: selectedMode) { _, newMode in
-                vpnManager.switchMode(newMode)
+                if vpnManager.isConnected {
+                    // Live switch via REST API — no tunnel restart needed
+                    Task {
+                        try? await MihomoAPI.switchMode(newMode.rawValue)
+                    }
+                    ConfigManager.shared.setMode(newMode.rawValue)
+                } else {
+                    vpnManager.switchMode(newMode)
+                }
             }
         }
     }
@@ -278,6 +288,13 @@ struct HomeView: View {
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }
+                        if vpnManager.isConnected && !sub.nodes.isEmpty {
+                            Button {
+                                testAllNodesDelay(in: $sub)
+                            } label: {
+                                Label("Test All Latency", systemImage: "bolt.horizontal")
+                            }
+                        }
                         Divider()
                         Button(role: .destructive) {
                             if let i = subscriptions.firstIndex(where: { $0.id == sub.id }) {
@@ -300,7 +317,11 @@ struct HomeView: View {
                                     selectSubscription(sub)
                                 }
                                 vpnManager.selectNode(node.name)
-                            }
+                            },
+                            isTesting: testingNodes.contains(node.name),
+                            onTestDelay: vpnManager.isConnected ? {
+                                testNodeDelay(node: node, in: $sub)
+                            } : nil
                         )
                     }
                 }
@@ -424,6 +445,49 @@ struct HomeView: View {
                     displayToast(String(format: String(localized: "Fetched %@"), name))
                 } catch {
                     displayToast(String(format: String(localized: "Failed to fetch %@"), name))
+                }
+            }
+        }
+    }
+
+    private func loadCurrentMode() {
+        // Sync mode from saved preference, or from running engine
+        if let saved = AppConstants.sharedDefaults.string(forKey: "proxyMode"),
+           let mode = ProxyMode(rawValue: saved) {
+            selectedMode = mode
+        }
+        guard vpnManager.isConnected else { return }
+        Task {
+            if let mode = try? await MihomoAPI.fetchCurrentMode(),
+               let proxyMode = ProxyMode(rawValue: mode) {
+                selectedMode = proxyMode
+            }
+        }
+    }
+
+    private func testAllNodesDelay(in sub: Binding<Subscription>) {
+        let nodes = sub.wrappedValue.nodes
+        for node in nodes {
+            testNodeDelay(node: node, in: sub)
+        }
+    }
+
+    private func testNodeDelay(node: ProxyNode, in sub: Binding<Subscription>) {
+        guard !testingNodes.contains(node.name) else { return }
+        testingNodes.insert(node.name)
+        Task {
+            defer { testingNodes.remove(node.name) }
+            do {
+                let delay = try await MihomoAPI.testProxyDelay(proxy: node.name)
+                if let subIdx = subscriptions.firstIndex(where: { $0.id == sub.wrappedValue.id }),
+                   let nodeIdx = subscriptions[subIdx].nodes.firstIndex(where: { $0.id == node.id }) {
+                    subscriptions[subIdx].nodes[nodeIdx].delay = delay
+                }
+            } catch {
+                // Timeout or unreachable — set delay to 0 to indicate failure
+                if let subIdx = subscriptions.firstIndex(where: { $0.id == sub.wrappedValue.id }),
+                   let nodeIdx = subscriptions[subIdx].nodes.firstIndex(where: { $0.id == node.id }) {
+                    subscriptions[subIdx].nodes[nodeIdx].delay = 0
                 }
             }
         }

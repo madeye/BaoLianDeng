@@ -34,6 +34,10 @@
 		A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096 /* PerAppProxySection.swift */; };
 		A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* TrafficStore.swift */; };
+		B10063 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* MihomoAPI.swift */; };
+		B10065 /* RulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10064 /* RulesView.swift */; };
+		B10067 /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10066 /* ConnectionsView.swift */; };
+		B10069 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10068 /* DiagnosticsView.swift */; };
 		AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* TunnelLogView.swift */; };
 		ADFBB07EC9AE7B14EE8CF08D /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* VPNManager.swift */; };
 		B10056 /* ConfigListViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055 /* ConfigListViews.swift */; };
@@ -61,6 +65,7 @@
 		T10022 /* BypassGroupDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10021 /* BypassGroupDetectionTests.swift */; };
 		T10031 /* ConfigParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10030 /* ConfigParserTests.swift */; };
 		T10033 /* MihomoCoreIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10032 /* MihomoCoreIntegrationTests.swift */; };
+		T10035 /* MihomoAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10034 /* MihomoAPITests.swift */; };
 		GEO002 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
 		GEO004 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
 /* End PBXBuildFile section */
@@ -127,6 +132,10 @@
 		B10054 /* ConfigStyleHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStyleHelpers.swift; sourceTree = "<group>"; };
 		B10055 /* ConfigListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigListViews.swift; sourceTree = "<group>"; };
 		B10060 /* TrafficStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStore.swift; sourceTree = "<group>"; };
+		B10062 /* MihomoAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPI.swift; sourceTree = "<group>"; };
+		B10064 /* RulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RulesView.swift; sourceTree = "<group>"; };
+		B10066 /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
+		B10068 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		B10070 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 		B10090 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		B10095 /* PerAppProxySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettings.swift; sourceTree = "<group>"; };
@@ -145,6 +154,7 @@
 		T10021 /* BypassGroupDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BypassGroupDetectionTests.swift; sourceTree = "<group>"; };
 		T10030 /* ConfigParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigParserTests.swift; sourceTree = "<group>"; };
 		T10032 /* MihomoCoreIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoCoreIntegrationTests.swift; sourceTree = "<group>"; };
+		T10034 /* MihomoAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPITests.swift; sourceTree = "<group>"; };
 		GEO001 /* geoip.metadb */ = {isa = PBXFileReference; lastKnownFileType = file; path = geoip.metadb; sourceTree = "<group>"; };
 		GEO003 /* geosite.dat */ = {isa = PBXFileReference; lastKnownFileType = file; path = geosite.dat; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -306,6 +316,9 @@
 				B10204 /* MainContentView.swift */,
 				B10206 /* SidebarView.swift */,
 				B10208 /* VPNToolbarContent.swift */,
+				B10064 /* RulesView.swift */,
+				B10066 /* ConnectionsView.swift */,
+				B10068 /* DiagnosticsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -313,6 +326,7 @@
 		G10009 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				B10062 /* MihomoAPI.swift */,
 				B10060 /* TrafficStore.swift */,
 			);
 			path = Models;
@@ -325,6 +339,7 @@
 				T10021 /* BypassGroupDetectionTests.swift */,
 				T10030 /* ConfigParserTests.swift */,
 				T10032 /* MihomoCoreIntegrationTests.swift */,
+				T10034 /* MihomoAPITests.swift */,
 			);
 			path = BaoLianDengTests;
 			sourceTree = "<group>";
@@ -470,6 +485,10 @@
 				E4A1B2C3D5F6078E9A1B3C5D /* ConfigStyleHelpers.swift in Sources */,
 				B10056 /* ConfigListViews.swift in Sources */,
 				A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */,
+				B10063 /* MihomoAPI.swift in Sources */,
+				B10065 /* RulesView.swift in Sources */,
+				B10067 /* ConnectionsView.swift in Sources */,
+				B10069 /* DiagnosticsView.swift in Sources */,
 				C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */,
 				D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */,
 				8263DE84A3B841EF63A2FF89 /* ConfigManager.swift in Sources */,
@@ -509,6 +528,7 @@
 				T10022 /* BypassGroupDetectionTests.swift in Sources */,
 				T10031 /* ConfigParserTests.swift in Sources */,
 				T10033 /* MihomoCoreIntegrationTests.swift in Sources */,
+				T10035 /* MihomoAPITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
