@@ -52,11 +52,18 @@ struct ProxyGroupsSection: View {
                         isVpnConnected: isVpnConnected,
                         isExpanded: expandedGroups.contains(group.name),
                         onToggle: {
+                            let wasExpanded = expandedGroups.contains(group.name)
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                if expandedGroups.contains(group.name) {
+                                if wasExpanded {
                                     expandedGroups.remove(group.name)
                                 } else {
                                     expandedGroups.insert(group.name)
+                                }
+                            }
+                            // Auto-test delays when expanding and VPN is connected
+                            if !wasExpanded && isVpnConnected {
+                                Task {
+                                    await viewModel.testGroupDelay(group: group.name)
                                 }
                             }
                         }
