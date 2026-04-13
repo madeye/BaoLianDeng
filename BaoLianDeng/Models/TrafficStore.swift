@@ -120,7 +120,7 @@ final class TrafficStore: ObservableObject {
                     }
                 }
             }
-            await MainActor.run { self?.subscriptionNameCache = cache }
+            await MainActor.run { [cache] in self?.subscriptionNameCache = cache }
         }
     }
 
