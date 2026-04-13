@@ -18,6 +18,8 @@ import NetworkExtension
 
 struct VPNToolbarContent: ToolbarContent {
     @EnvironmentObject var vpnManager: VPNManager
+    @AppStorage("selectedSubscriptionID") private var selectedIDString: String?
+    @AppStorage("subscriptions") private var subscriptionsData: Data?
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .principal) {
@@ -51,9 +53,8 @@ struct VPNToolbarContent: ToolbarContent {
     }
 
     private var selectedSubscriptionName: String? {
-        let defaults = AppConstants.sharedDefaults
-        guard let idStr = defaults.string(forKey: "selectedSubscriptionID"),
-              let data = defaults.data(forKey: "subscriptions") else {
+        guard let idStr = selectedIDString,
+              let data = subscriptionsData else {
             return nil
         }
         struct Sub: Decodable { var id: UUID; var name: String }

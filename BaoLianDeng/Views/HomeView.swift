@@ -132,8 +132,8 @@ struct HomeView: View {
             }
         }
         .onChange(of: selectedSubscriptionID) { _, _ in
-            // Reload proxy groups when subscription changes
-            loadProxyGroups()
+            // Proxy groups are reloaded inside selectSubscription()
+            // after the config reload completes — no need to reload here.
         }
         .overlay {
             if showToast {
@@ -328,13 +328,16 @@ struct HomeView: View {
         AppConstants.sharedDefaults
             .set(sub.id.uuidString, forKey: "selectedSubscriptionID")
         if let raw = sub.rawContent {
-            Task.detached {
-                let merged = (try? ConfigManager.shared.applySubscriptionConfig(raw)) ?? ""
+            Task {
+                let merged = await Task.detached {
+                    (try? ConfigManager.shared.applySubscriptionConfig(raw)) ?? ""
+                }.value
                 await Self.reloadMihomoConfig(with: merged)
+                loadProxyGroups()
             }
+        } else {
+            loadProxyGroups()
         }
-        // Reload proxy groups with new subscription's YAML
-        loadProxyGroups()
     }
 
     private func loadSubscriptions() {
