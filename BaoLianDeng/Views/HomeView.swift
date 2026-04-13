@@ -22,19 +22,16 @@ struct HomeView: View {
     @EnvironmentObject var vpnManager: VPNManager
     @State private var selectedMode: ProxyMode = .rule
     @State private var subscriptions: [Subscription] = []
-    @State private var selectedNode: String?
     @State private var selectedSubscriptionID: UUID?
     @State private var showAddSubscription = false
     @State private var editingSubscription: Subscription?
     @State private var isReloading = false
     @State private var reloadResult: ReloadResult?
-    @State private var expandedSubscriptionIDs: Set<UUID> = []
     @State private var scrollProxy: ScrollViewProxy?
     @State private var toastMessage: String = ""
     @State private var showToast: Bool = false
     @State private var showExtensionHelp = false
     @State private var showFileImporter = false
-    @State private var testingNodes: Set<String> = []
     @State private var proxyGroupsVM = ProxyGroupsViewModel()
 
     var body: some View {
@@ -255,108 +252,69 @@ struct HomeView: View {
         } else {
             ForEach($subscriptions) { $sub in
                 HStack {
-                        Button(action: {
-                            if selectedSubscriptionID != sub.id {
-                                selectSubscription(sub)
-                            }
-                            withAnimation {
-                                if expandedSubscriptionIDs.contains(sub.id) {
-                                    expandedSubscriptionIDs.remove(sub.id)
-                                } else {
-                                    expandedSubscriptionIDs.insert(sub.id)
-                                }
-                            }
-                        }) {
-                            HStack {
-                                Image(systemName: expandedSubscriptionIDs.contains(sub.id) ? "chevron.down" : "chevron.right")
-                                    .font(.caption.weight(.semibold))
+                    Button(action: {
+                        if selectedSubscriptionID != sub.id {
+                            selectSubscription(sub)
+                        }
+                    }) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(sub.name)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text("\(sub.nodes.count) nodes")
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .frame(width: 16)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(sub.name)
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-                                    Text("\(sub.nodes.count) nodes")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if selectedSubscriptionID == sub.id {
-                                    Image(systemName: "checkmark")
-                                        .font(.body.weight(.semibold))
-                                        .foregroundStyle(.blue)
-                                }
+                            }
+                            Spacer()
+                            if selectedSubscriptionID == sub.id {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.blue)
                             }
                         }
-                        .buttonStyle(.plain)
+                    }
+                    .buttonStyle(.plain)
 
-                        Button(action: { refreshSubscription(&sub) }) {
-                            Image(systemName: "arrow.clockwise")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
+                    Button(action: { refreshSubscription(&sub) }) {
+                        Image(systemName: "arrow.clockwise")
+                            .foregroundStyle(.secondary)
                     }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            if let i = subscriptions.firstIndex(where: { $0.id == sub.id }) {
-                                deleteSubscription(at: IndexSet(integer: i))
-                            }
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                    .buttonStyle(.plain)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        if let i = subscriptions.firstIndex(where: { $0.id == sub.id }) {
+                            deleteSubscription(at: IndexSet(integer: i))
                         }
-                        Button {
-                            editingSubscription = sub
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                        }
-                        .tint(.orange)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
-                    .contextMenu {
-                        Button {
-                            editingSubscription = sub
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                        }
-                        Button {
-                            refreshSubscription(&sub)
-                        } label: {
-                            Label("Refresh", systemImage: "arrow.clockwise")
-                        }
-                        if vpnManager.isConnected && !sub.nodes.isEmpty {
-                            Button {
-                                testAllNodesDelay(in: $sub)
-                            } label: {
-                                Label("Test All Latency", systemImage: "bolt.horizontal")
-                            }
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            if let i = subscriptions.firstIndex(where: { $0.id == sub.id }) {
-                                deleteSubscription(at: IndexSet(integer: i))
-                            }
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
+                    Button {
+                        editingSubscription = sub
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
                     }
-
-                if expandedSubscriptionIDs.contains(sub.id) {
-                    ForEach(sub.nodes) { node in
-                        NodeRow(
-                            node: node,
-                            isSelected: node.name == selectedNode,
-                            onSelect: {
-                                selectedNode = node.name
-                                saveSelectedNode(node.name)
-                                if selectedSubscriptionID != sub.id {
-                                    selectSubscription(sub)
-                                }
-                                vpnManager.selectNode(node.name)
-                            },
-                            isTesting: testingNodes.contains(node.name),
-                            onTestDelay: vpnManager.isConnected ? {
-                                testNodeDelay(node: node, in: $sub)
-                            } : nil
-                        )
+                    .tint(.orange)
+                }
+                .contextMenu {
+                    Button {
+                        editingSubscription = sub
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    Button {
+                        refreshSubscription(&sub)
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        if let i = subscriptions.firstIndex(where: { $0.id == sub.id }) {
+                            deleteSubscription(at: IndexSet(integer: i))
+                        }
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
                 }
             }
@@ -369,25 +327,20 @@ struct HomeView: View {
         selectedSubscriptionID = sub.id
         AppConstants.sharedDefaults
             .set(sub.id.uuidString, forKey: "selectedSubscriptionID")
-        let nodeNames = Set(sub.nodes.map(\.name))
-        if selectedNode == nil || !nodeNames.contains(selectedNode ?? "") {
-            if let first = sub.nodes.first {
-                selectedNode = first.name
-                saveSelectedNode(first.name)
-            }
-        }
         if let raw = sub.rawContent {
             Task.detached {
                 let merged = (try? ConfigManager.shared.applySubscriptionConfig(raw)) ?? ""
                 await Self.reloadMihomoConfig(with: merged)
             }
         }
+        // Reload proxy groups with new subscription's YAML
+        loadProxyGroups()
     }
 
     private func loadSubscriptions() {
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                () -> (subs: [Subscription], selectedNode: String?, selectedID: UUID?)? in
+                () -> (subs: [Subscription], selectedID: UUID?)? in
                 let defaults = AppConstants.sharedDefaults
                 guard let data = defaults.data(forKey: "subscriptions"),
                       var subs = try? JSONDecoder().decode([Subscription].self, from: data) else {
@@ -403,7 +356,6 @@ struct HomeView: View {
                 if needsSave, let saveData = try? JSONEncoder().encode(subs) {
                     defaults.set(saveData, forKey: "subscriptions")
                 }
-                let selectedNode = defaults.string(forKey: "selectedNode")
                 let selectedID: UUID?
                 if let idStr = defaults.string(forKey: "selectedSubscriptionID"),
                    let id = UUID(uuidString: idStr),
@@ -412,15 +364,13 @@ struct HomeView: View {
                 } else {
                     selectedID = nil
                 }
-                return (subs, selectedNode, selectedID)
+                return (subs, selectedID)
             }.value
 
             guard let result else { return }
             subscriptions = result.subs
-            selectedNode = result.selectedNode
             if let id = result.selectedID {
                 selectedSubscriptionID = id
-                expandedSubscriptionIDs.insert(id)
                 if let sub = result.subs.first(where: { $0.id == id }),
                    let raw = sub.rawContent {
                     try? ConfigManager.shared.applySubscriptionConfig(raw)
@@ -437,11 +387,6 @@ struct HomeView: View {
             AppConstants.sharedDefaults
                 .set(data, forKey: "subscriptions")
         }
-    }
-
-    private func saveSelectedNode(_ name: String) {
-        AppConstants.sharedDefaults
-            .set(name, forKey: "selectedNode")
     }
 
     static func reloadMihomoConfig(with yaml: String) async {
@@ -515,34 +460,6 @@ struct HomeView: View {
         }
     }
 
-    private func testAllNodesDelay(in sub: Binding<Subscription>) {
-        let nodes = sub.wrappedValue.nodes
-        for node in nodes {
-            testNodeDelay(node: node, in: sub)
-        }
-    }
-
-    private func testNodeDelay(node: ProxyNode, in sub: Binding<Subscription>) {
-        guard !testingNodes.contains(node.name) else { return }
-        testingNodes.insert(node.name)
-        Task {
-            defer { testingNodes.remove(node.name) }
-            do {
-                let delay = try await MihomoAPI.testProxyDelay(proxy: node.name)
-                if let subIdx = subscriptions.firstIndex(where: { $0.id == sub.wrappedValue.id }),
-                   let nodeIdx = subscriptions[subIdx].nodes.firstIndex(where: { $0.id == node.id }) {
-                    subscriptions[subIdx].nodes[nodeIdx].delay = delay
-                }
-            } catch {
-                // Timeout or unreachable — set delay to 0 to indicate failure
-                if let subIdx = subscriptions.firstIndex(where: { $0.id == sub.wrappedValue.id }),
-                   let nodeIdx = subscriptions[subIdx].nodes.firstIndex(where: { $0.id == node.id }) {
-                    subscriptions[subIdx].nodes[nodeIdx].delay = 0
-                }
-            }
-        }
-    }
-
     private func importConfigFile(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
@@ -564,7 +481,6 @@ struct HomeView: View {
                 subscriptions.append(sub)
                 saveSubscriptions()
                 selectSubscription(sub)
-                expandedSubscriptionIDs.insert(sub.id)
                 displayToast(String(format: String(localized: "Imported %@ (%lld nodes)"), name, nodes.count))
             } catch {
                 displayToast(String(format: String(localized: "Failed to read file: %@"), error.localizedDescription))
