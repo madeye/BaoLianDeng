@@ -141,6 +141,19 @@ struct HomeView: View {
         }
     }
 
+    private var extensionHelpMessage: String {
+        switch vpnManager.systemExtensionInstallState {
+        case .awaitingUserApproval:
+            return "System Settings has been opened.\n\nPlease go to Network Extensions and toggle on BaoLianDeng to enable the VPN."
+        case .rebootRequired:
+            return "The system extension install finished, but macOS requires a reboot before BaoLianDeng can start the VPN."
+        case .failed:
+            return "System Settings has been opened.\n\nRetry the Network Extension approval for BaoLianDeng. If macOS keeps rejecting it, relaunch the app or reinstall the package."
+        default:
+            return "System Settings has been opened.\n\nPlease go to Network Extensions and toggle on BaoLianDeng to enable the VPN."
+        }
+    }
+
     // MARK: - Extension Status
 
     private var extensionStatusSection: some View {
@@ -148,6 +161,7 @@ struct HomeView: View {
             if !vpnManager.extensionEnabled {
                 Button {
                     showExtensionHelp = true
+                    vpnManager.checkExtensionStatus(forceRetry: true)
                     if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
                         NSWorkspace.shared.open(url)
                     }
@@ -164,7 +178,7 @@ struct HomeView: View {
                 .alert("Enable Network Extension", isPresented: $showExtensionHelp) {
                     Button("OK") {}
                 } message: {
-                    Text("System Settings has been opened.\n\nPlease go to Network Extensions and toggle on BaoLianDeng to enable the VPN.")
+                    Text(extensionHelpMessage)
                 }
             }
 
