@@ -31,6 +31,7 @@ struct VPNToolbarContent: ToolbarContent {
                 Text(statusText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
 
                 if let name = selectedSubscriptionName, !name.isEmpty {
                     Text(name)
