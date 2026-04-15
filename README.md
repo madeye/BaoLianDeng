@@ -2,7 +2,7 @@
 
 macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Clash Meta) core.
 
-**[Download DMG](https://github.com/madeye/BaoLianDeng/releases/latest)** · **[Website](https://madeye.github.io/BaoLianDeng/)**
+**[Download PKG](https://github.com/madeye/BaoLianDeng/releases/latest)** · **[Website](https://madeye.github.io/BaoLianDeng/)**
 
 ## Features
 
@@ -44,20 +44,14 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 
 ## Install
 
-### Homebrew
+### From PKG
 
-```bash
-brew install --cask baoliandeng
-```
-
-### From DMG
-
-1. Download the latest DMG from [Releases](https://github.com/madeye/BaoLianDeng/releases/latest)
-2. Open the DMG and drag **BaoLianDeng** to **Applications**
-3. Launch from Applications
+1. Download the latest PKG from [Releases](https://github.com/madeye/BaoLianDeng/releases/latest)
+2. Open the PKG installer and follow the prompts (installs to **/Applications**)
+3. Launch **BaoLianDeng** from Applications
 4. Enable the network extension: **System Settings → General → Login Items & Extensions → Network Extensions** → toggle on **BaoLianDeng**
 
-The DMG is signed with Developer ID and notarized by Apple.
+The PKG is signed with Developer ID and notarized by Apple.
 
 ### Build from Source
 
