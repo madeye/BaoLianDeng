@@ -534,16 +534,31 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         )
         settings.includedNetworkRules = [tcpRule, udpRule]
 
-        // Exclude localhost and LAN traffic
+        // Exclude localhost, LAN, and all reserved/private IP ranges
         var excluded: [NENetworkRule] = []
         let excludedRanges: [(String, Int)] = [
-            ("127.0.0.0", 8),     // Loopback
-            ("10.0.0.0", 8),      // Private
-            ("172.16.0.0", 12),   // Private
-            ("192.168.0.0", 16),  // Private
-            ("169.254.0.0", 16),  // Link-local
-            ("224.0.0.0", 4),     // Multicast
-            ("100.64.0.0", 10)    // CGNAT
+            // IPv4
+            ("0.0.0.0", 8),       // "This" network (RFC 1122)
+            ("10.0.0.0", 8),      // Private (RFC 1918)
+            ("100.64.0.0", 10),   // CGNAT (RFC 6598)
+            ("127.0.0.0", 8),     // Loopback (RFC 1122)
+            ("169.254.0.0", 16),  // Link-local (RFC 3927)
+            ("172.16.0.0", 12),   // Private (RFC 1918)
+            ("192.0.0.0", 24),    // IETF Protocol Assignments (RFC 6890)
+            ("192.0.2.0", 24),    // Documentation TEST-NET-1 (RFC 5737)
+            ("192.88.99.0", 24),  // 6to4 Relay Anycast (RFC 7526)
+            ("192.168.0.0", 16),  // Private (RFC 1918)
+            ("198.18.0.0", 15),   // Benchmarking (RFC 2544)
+            ("198.51.100.0", 24), // Documentation TEST-NET-2 (RFC 5737)
+            ("203.0.113.0", 24),  // Documentation TEST-NET-3 (RFC 5737)
+            ("224.0.0.0", 4),     // Multicast (RFC 5771)
+            ("240.0.0.0", 4),     // Reserved for future use (RFC 1112)
+            ("255.255.255.255", 32), // Limited broadcast
+            // IPv6
+            ("::1", 128),         // Loopback
+            ("fc00::", 7),        // Unique local address (RFC 4193)
+            ("fe80::", 10),       // Link-local (RFC 4291)
+            ("ff00::", 8),        // Multicast (RFC 4291)
         ]
         for (network, prefix) in excludedRanges {
             excluded.append(

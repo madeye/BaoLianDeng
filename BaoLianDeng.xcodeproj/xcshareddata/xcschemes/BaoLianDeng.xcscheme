@@ -29,7 +29,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "037A5AF56A256698DCED8763"
-               BuildableName = "TransparentProxy.systemextension"
+               BuildableName = "io.github.baoliandeng.macos.TransparentProxy.systemextension"
                BlueprintName = "TransparentProxy"
                ReferencedContainer = "container:BaoLianDeng.xcodeproj">
             </BuildableReference>
