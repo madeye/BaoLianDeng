@@ -41,6 +41,7 @@ final class VPNManager: NSObject, ObservableObject {
     @Published private(set) var systemExtensionInstallState: SystemExtensionInstallState = .notInstalled
     private var activationRequestInFlight = false
     private var isLoadingManager = false
+    private var didAttemptAutoStartAtLogin = false
     private func dbg(_ msg: String) {
         AppLogger.vpn.notice("\(msg, privacy: .public)")
     }
@@ -210,6 +211,7 @@ final class VPNManager: NSObject, ObservableObject {
                         self.dbg("loadManager: manager ready")
                         self.manager = mgr
                         self.observeStatus()
+                        self.startAtLoginIfNeeded()
                         // Auto-connect: if /tmp/.bld-autoconnect exists, start VPN
                         // Used by E2E tests to trigger connection without UI automation
                         let sentinelPath = "/tmp/.bld-autoconnect"
@@ -237,6 +239,17 @@ final class VPNManager: NSObject, ObservableObject {
         manager.isEnabled = true
 
         return manager
+    }
+
+    private func startAtLoginIfNeeded() {
+        guard !didAttemptAutoStartAtLogin else { return }
+        didAttemptAutoStartAtLogin = true
+
+        guard AppConstants.sharedDefaults.bool(forKey: AppConstants.autoStartVPNAtLoginKey),
+              status == .disconnected else { return }
+
+        dbg("startAtLoginIfNeeded: starting VPN")
+        start()
     }
 
     private func observeStatus() {

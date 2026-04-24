@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import SwiftUI
+import ServiceManagement
 
 struct SettingsView: View {
     @EnvironmentObject var vpnManager: VPNManager
@@ -21,6 +22,9 @@ struct SettingsView: View {
     private var logLevel = "info"
     @AppStorage("appLanguage")
     private var appLanguage = ""
+    @AppStorage(AppConstants.autoStartVPNAtLoginKey, store: AppConstants.sharedDefaults)
+    private var autoStartVPNAtLogin = false
+    @State private var startupErrorMessage: String?
 
     var body: some View {
         Form {
@@ -44,6 +48,17 @@ struct SettingsView: View {
                     Text("Warning").tag("warning")
                     Text("Info").tag("info")
                     Text("Debug").tag("debug")
+                }
+
+                Toggle("Start VPN at Login", isOn: $autoStartVPNAtLogin)
+                    .onChange(of: autoStartVPNAtLogin) { oldValue, newValue in
+                        updateLoginItem(enabled: newValue, previousValue: oldValue)
+                    }
+
+                if let startupErrorMessage {
+                    Text(startupErrorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -72,6 +87,23 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+    }
+
+    private func updateLoginItem(enabled: Bool, previousValue: Bool) {
+        startupErrorMessage = nil
+
+        do {
+            if enabled {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
+                }
+            } else if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            autoStartVPNAtLogin = previousValue
+            startupErrorMessage = error.localizedDescription
+        }
     }
 }
 

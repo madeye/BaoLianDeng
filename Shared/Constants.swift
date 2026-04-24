@@ -23,6 +23,7 @@ enum AppConstants {
     static let dailyTrafficKey = "dailyTrafficRecords"
     static let subscriptionUsageKey = "subscriptionUsageRecords"
     static let perAppProxySettingsKey = "perAppProxySettings"
+    static let autoStartVPNAtLoginKey = "autoStartVPNAtLogin"
 
     /// Shared UserDefaults via app group suite.
     static var sharedDefaults: UserDefaults {
