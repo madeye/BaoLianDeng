@@ -599,7 +599,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 5.3;
+				MARKETING_VERSION = 5.4;
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
@@ -638,7 +638,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 5.3;
+				MARKETING_VERSION = 5.4;
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
@@ -673,7 +673,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 5.3;
+				MARKETING_VERSION = 5.4;
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
@@ -712,7 +712,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 5.3;
+				MARKETING_VERSION = 5.4;
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
