@@ -538,7 +538,11 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         var excluded: [NENetworkRule] = []
         let excludedRanges: [(String, Int)] = [
             // IPv4
-            ("0.0.0.0", 8),       // "This" network (RFC 1122)
+            // NOTE: do NOT add a ("0.0.0.0", 8) rule. macOS treats hostname
+            // "0.0.0.0" + port "0" as fully wildcard and rejects the entire
+            // settings object with NETunnelProviderErrorDomain Code=1
+            // "Either a non-wildcard port or a non-wildcard address must be
+            // specified", which prevents the tunnel from starting.
             ("10.0.0.0", 8),      // Private (RFC 1918)
             ("100.64.0.0", 10),   // CGNAT (RFC 6598)
             ("127.0.0.0", 8),     // Loopback (RFC 1122)
