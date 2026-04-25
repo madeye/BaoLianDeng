@@ -273,6 +273,7 @@ struct HomeView: View {
                                     .foregroundStyle(.blue)
                             }
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
 
