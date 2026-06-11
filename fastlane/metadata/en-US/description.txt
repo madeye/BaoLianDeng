@@ -1,16 +1,19 @@
-BaoLianDeng is a powerful proxy client for iOS powered by the Mihomo (Clash Meta) engine. It routes your network traffic through proxy servers using flexible rule-based, global, or direct routing modes.
+BaoLianDeng is a powerful proxy client for macOS powered by the Mihomo (Clash Meta) engine. It routes your network traffic through proxy servers using flexible rule-based, global, or direct routing modes.
 
 Key Features:
 
-- One-tap connect with a simple VPN toggle
+- One-click connect with a simple VPN toggle
 - Three routing modes: Rule-based, Global proxy, and Direct
+- Per-app proxy: include or exclude specific apps from the tunnel
 - Subscription support for Clash YAML and base64-encoded configs
 - Multiple proxy protocols: Shadowsocks, VMess, VLESS, Trojan, Hysteria, Hysteria2, and WireGuard
-- Real-time traffic monitoring with upload and download statistics
-- Built-in YAML configuration editor
+- Real-time traffic monitoring with upload/download statistics and subscription usage tracking
+- Built-in YAML configuration editor with syntax highlighting and live rule reload
 - Proxy group management with latency testing
+- Active connections viewer and built-in network diagnostics
+- Start the VPN automatically at login
 - Adjustable log levels for troubleshooting
 
-BaoLianDeng uses the iOS Network Extension framework to create a local VPN tunnel, routing traffic through your configured proxy servers. All processing happens on your device — no third-party servers are involved.
+BaoLianDeng uses the macOS Network Extension framework to transparently route your traffic through your configured proxy servers. All processing happens on your Mac — no third-party servers are involved.
 
 Note: This app requires your own proxy server or subscription service. It does not provide any proxy servers or VPN service itself.

@@ -1,7 +1,8 @@
-BaoLianDeng v5.0
+BaoLianDeng v5.5 — now on the Mac App Store!
 
-- PKG installer for streamlined installation with system extension approval
-- Fix transparent proxy network rules for macOS 15+ compatibility
-- Improved VPN manager robustness: prevent duplicate configs and activation race conditions
-- Sidebar navigation with toolbar node display
+- Full Mihomo (Clash Meta) engine with rule-based, global, and direct routing
 - Per-app proxy with search
+- YAML config editor with syntax highlighting and live rule reload
+- Proxy groups with latency testing, connections viewer, and diagnostics
+- Traffic statistics and subscription usage tracking
+- Option to start the VPN automatically at login

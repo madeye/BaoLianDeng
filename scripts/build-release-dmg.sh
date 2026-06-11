@@ -49,6 +49,7 @@ xcodebuild archive \
   -configuration Release \
   -destination 'generic/platform=macOS' \
   -archivePath "$ARCHIVE_PATH" \
+  NE_PROVIDER_SUFFIX="-systemextension" \
   | tail -3
 
 echo "=== Step 3: Export with Developer ID ==="

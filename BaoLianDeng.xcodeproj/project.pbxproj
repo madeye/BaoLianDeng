@@ -583,9 +583,8 @@
 			baseConfigurationReference = B10070 /* Local.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = TransparentProxyMac/TransparentProxyMac.entitlements;
-				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 63;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -600,13 +599,13 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 5.5;
+				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				PRODUCT_NAME = io.github.baoliandeng.macos.TransparentProxy;
-				PROVISIONING_PROFILE_SPECIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -621,9 +620,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
-				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 63;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -639,13 +637,13 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 5.5;
+				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -657,9 +655,8 @@
 			baseConfigurationReference = B10070 /* Local.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = TransparentProxyMac/TransparentProxyMac.entitlements;
-				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 105;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -674,13 +671,13 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 5.5;
+				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				PRODUCT_NAME = io.github.baoliandeng.macos.TransparentProxy;
-				PROVISIONING_PROFILE_SPECIFIER = io.github.baoliandeng.macos.TransparentProxy;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -695,9 +692,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
-				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 105;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -713,13 +709,13 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 5.5;
+				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
 					"-ObjC",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

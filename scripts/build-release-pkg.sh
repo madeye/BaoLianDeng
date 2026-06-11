@@ -47,12 +47,16 @@ echo "=== Step 1: Build framework ==="
 make framework
 
 echo "=== Step 2: Archive ==="
+# Developer ID distribution requires the -systemextension variant of the
+# Network Extension entitlement (development and App Store profiles only
+# carry the unsuffixed value).
 xcodebuild archive \
   -project ${APP_NAME}.xcodeproj \
   -scheme "$SCHEME" \
   -configuration Release \
   -destination 'generic/platform=macOS' \
   -archivePath "$ARCHIVE_PATH" \
+  NE_PROVIDER_SUFFIX="-systemextension" \
   | tail -3
 
 echo "=== Step 3: Export with Developer ID ==="

@@ -1,1 +1,1 @@
-A lightweight proxy client powered by Mihomo with support for Shadowsocks, VMess, VLESS, Trojan, Hysteria, and WireGuard.
+A lightweight proxy client for your Mac powered by Mihomo, with support for Shadowsocks, VMess, VLESS, Trojan, Hysteria, and WireGuard.

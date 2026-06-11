@@ -10,7 +10,7 @@
 	<true/>
 	<key>com.apple.developer.networking.networkextension</key>
 	<array>
-		<string>app-proxy-provider-systemextension</string>
+		<string>app-proxy-provider$(NE_PROVIDER_SUFFIX)</string>
 	</array>
 	<key>com.apple.developer.system-extension.install</key>
 	<true/>
