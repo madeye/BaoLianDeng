@@ -161,8 +161,8 @@ final class TrafficStore: ObservableObject {
             // The tunnel tracks total upload/download across all connections.
             // Per-connection stats are only finalized when connections close,
             // so use the tunnel totals for accurate real-time tracking.
-            let uploadTotal = (json["upload_total"] as? NSNumber)?.int64Value ?? 0
-            let downloadTotal = (json["download_total"] as? NSNumber)?.int64Value ?? 0
+            let uploadTotal = (json["uploadTotal"] as? NSNumber)?.int64Value ?? 0
+            let downloadTotal = (json["downloadTotal"] as? NSNumber)?.int64Value ?? 0
             Task { @MainActor [weak self] in
                 self?.processConnections(connections, uploadTotal: uploadTotal, downloadTotal: downloadTotal)
             }
