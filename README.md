@@ -2,7 +2,7 @@
 
 macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Clash Meta) core.
 
-**[Download PKG](https://github.com/madeye/BaoLianDeng/releases/latest)** · **[Website](https://madeye.github.io/BaoLianDeng/)**
+**[Download PKG](https://github.com/madeye/BaoLianDeng/releases/latest)** · **[TestFlight Beta](https://testflight.apple.com/join/VpX3tHnS)** · **[Website](https://madeye.github.io/BaoLianDeng/)**
 
 ## Features
 
