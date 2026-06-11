@@ -49,10 +49,32 @@ final class VPNManager: NSObject, ObservableObject {
     private var manager: NETransparentProxyManager?
     private var statusObserver: NSObjectProtocol?
 
+    /// True when the provider ships as an app extension in PlugIns (Mac App
+    /// Store packaging) instead of a system extension. Appexes need no
+    /// OSSystemExtensionRequest activation or System Settings approval —
+    /// the system launches them directly from the app bundle.
+    static let providerIsAppExtension: Bool = {
+        guard let plugins = Bundle.main.builtInPlugInsURL,
+              let items = try? FileManager.default.contentsOfDirectory(atPath: plugins.path) else {
+            return false
+        }
+        return items.contains { $0.hasSuffix(".appex") }
+    }()
+
     private override init() {
         super.init()
+        // Don't touch the system extension or the user's real NE preferences
+        // when the app is only hosting unit tests.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return
+        }
         #if canImport(SystemExtensions)
-        activateSystemExtension()
+        if Self.providerIsAppExtension {
+            updateInstallState(.active)
+            loadManager()
+        } else {
+            activateSystemExtension()
+        }
         #else
         loadManager()
         #endif
@@ -62,6 +84,10 @@ final class VPNManager: NSObject, ObservableObject {
 
     #if canImport(SystemExtensions)
     func activateSystemExtension(force: Bool = false) {
+        if Self.providerIsAppExtension {
+            dbg("activateSystemExtension skipped: provider is an app extension")
+            return
+        }
         if activationRequestInFlight {
             dbg("activateSystemExtension skipped: request already in flight")
             return
@@ -106,6 +132,11 @@ final class VPNManager: NSObject, ObservableObject {
     /// Check if the system extension is enabled by re-probing activation status.
     func checkExtensionStatus(forceRetry: Bool = false) {
         #if canImport(SystemExtensions)
+        if Self.providerIsAppExtension {
+            updateInstallState(.active)
+            if manager == nil { loadManager() }
+            return
+        }
         dbg("checkExtensionStatus(forceRetry=\(forceRetry)) state=\(String(describing: systemExtensionInstallState))")
         refreshSystemExtensionStatus(forceRetry: forceRetry)
         #else

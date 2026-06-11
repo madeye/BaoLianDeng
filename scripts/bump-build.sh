@@ -38,12 +38,14 @@ case "$CONFIG" in
     debug)
         BLOCKS=(
             "D11C88732910D050C57C2AEE"  # TransparentProxy/Debug
+            "AX10003"                   # TransparentProxyAppex/Debug
             "E9D48DA79572E3916C0F3AEF"  # BaoLianDeng/Debug
         )
         ;;
     release)
         BLOCKS=(
             "06AC95C84A776847DF0FBFDB"  # TransparentProxy/Release
+            "AX10004"                   # TransparentProxyAppex/Release
             "51D5A9072314B0B4FE0F84C8"  # BaoLianDeng/Release
         )
         ;;

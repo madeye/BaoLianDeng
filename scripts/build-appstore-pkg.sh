@@ -73,6 +73,18 @@ xcodebuild archive \
   NE_PROVIDER_SUFFIX="" \
   | tail -3
 
+echo "=== Step 2b: Prune system extension (MAS ships the appex) ==="
+# Both provider packagings are embedded during the build. App Store builds
+# ship only the app extension (PlugIns/TransparentProxy.appex); the system
+# extension is the Developer ID packaging (TN3134: appex is App Store-only).
+# exportArchive re-signs the app, so the modified bundle gets a fresh seal.
+APP_IN_ARCHIVE="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
+rm -rf "${APP_IN_ARCHIVE}/Contents/Library/SystemExtensions"
+if [ ! -d "${APP_IN_ARCHIVE}/Contents/PlugIns/TransparentProxy.appex" ]; then
+  echo "ERROR: TransparentProxy.appex missing from archive"
+  exit 1
+fi
+
 echo "=== Step 3: Export App Store PKG ==="
 cat > "$EXPORT_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

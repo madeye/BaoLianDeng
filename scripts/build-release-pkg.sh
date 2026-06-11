@@ -59,6 +59,18 @@ xcodebuild archive \
   NE_PROVIDER_SUFFIX="-systemextension" \
   | tail -3
 
+echo "=== Step 2b: Prune app extension (Developer ID ships the sysext) ==="
+# Both provider packagings are embedded during the build. App extensions are
+# App Store-only (TN3134), so Developer ID builds ship only the system
+# extension. exportArchive re-signs the app, giving the pruned bundle a
+# fresh seal.
+APP_IN_ARCHIVE="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
+rm -rf "${APP_IN_ARCHIVE}/Contents/PlugIns/TransparentProxy.appex"
+if [ ! -d "${APP_IN_ARCHIVE}/Contents/Library/SystemExtensions" ]; then
+  echo "ERROR: system extension missing from archive"
+  exit 1
+fi
+
 echo "=== Step 3: Export with Developer ID ==="
 cat > "$EXPORT_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

@@ -73,6 +73,20 @@
 		T10047 /* ProxyEngineHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10046 /* ProxyEngineHelper.swift */; };
 		GEO002 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
 		GEO004 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
+		AX10020 /* TransparentProxyProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TransparentProxyProvider.swift */; };
+		AX10021 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
+		AX10022 /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
+		AX10023 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
+		AX10024 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
+		AX10025 /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* ConfigManager.swift */; };
+		AX10027 /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
+		AX10030 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E02415D2E45FB235C0EF142 /* Cocoa.framework */; };
+		AX10031 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040 /* NetworkExtension.framework */; };
+		AX10032 /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
+		AX10033 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = AX10040 /* Yams */; };
+		AX10034 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
+		AX10035 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
+		AX10051 /* TransparentProxy.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AX10010 /* TransparentProxy.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -90,6 +104,13 @@
 			remoteGlobalIDString = F66874266FF58B2DD8903C6E;
 			remoteInfo = BaoLianDeng;
 		};
+		AX10060 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E10001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AX10001;
+			remoteInfo = TransparentProxyAppex;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -102,6 +123,17 @@
 				CEE9200E5015BA697A46FD4A /* TransparentProxy.systemextension in Embed System Extensions */,
 			);
 			name = "Embed System Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AX10050 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AX10051 /* TransparentProxy.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -167,6 +199,8 @@
 		T10046 /* ProxyEngineHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineHelper.swift; sourceTree = "<group>"; };
 		GEO001 /* geoip.metadb */ = {isa = PBXFileReference; lastKnownFileType = file; path = geoip.metadb; sourceTree = "<group>"; };
 		GEO003 /* geosite.dat */ = {isa = PBXFileReference; lastKnownFileType = file; path = geosite.dat; sourceTree = "<group>"; };
+		AX10010 /* TransparentProxy.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TransparentProxy.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AX10080 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -199,6 +233,17 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AX10006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AX10030 /* Cocoa.framework in Frameworks */,
+				AX10031 /* NetworkExtension.framework in Frameworks */,
+				AX10032 /* MihomoCore.xcframework in Frameworks */,
+				AX10033 /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,8 +281,17 @@
 				G10006 /* Frameworks */,
 				G10007 /* Products */,
 				8187F3BB8FCEA36AC93E802C /* TransparentProxyMac */,
+				AX10081 /* TransparentProxyAppex */,
 				881BF3538A657F9F7F3951E8 /* main.swift */,
 			);
+			sourceTree = "<group>";
+		};
+		AX10081 /* TransparentProxyAppex */ = {
+			isa = PBXGroup;
+			children = (
+				AX10080 /* Info.plist */,
+			);
+			path = TransparentProxyAppex;
 			sourceTree = "<group>";
 		};
 		G10002 /* BaoLianDeng */ = {
@@ -300,6 +354,7 @@
 			isa = PBXGroup;
 			children = (
 				259DB0A8D1BC3A31D635256A /* TransparentProxy.systemextension */,
+				AX10010 /* TransparentProxy.appex */,
 				8A37D4B4A6176DB152B15D42 /* BaoLianDeng.app */,
 				T10010 /* BaoLianDengTests.xctest */,
 			);
@@ -390,6 +445,26 @@
 			productReference = 259DB0A8D1BC3A31D635256A /* TransparentProxy.systemextension */;
 			productType = "com.apple.product-type.system-extension";
 		};
+		AX10001 /* TransparentProxyAppex */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AX10002 /* Build configuration list for PBXNativeTarget "TransparentProxyAppex" */;
+			buildPhases = (
+				AX10005 /* Sources */,
+				AX10006 /* Frameworks */,
+				AX10007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TransparentProxyAppex;
+			packageProductDependencies = (
+				AX10040 /* Yams */,
+			);
+			productName = TransparentProxyAppex;
+			productReference = AX10010 /* TransparentProxy.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		F66874266FF58B2DD8903C6E /* BaoLianDeng */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3EC5C41D1A2FE093C1B264E2 /* Build configuration list for PBXNativeTarget "BaoLianDeng" */;
@@ -398,11 +473,13 @@
 				39636CADF2B14F90572D122D /* Frameworks */,
 				85C1707622B3DE6CF260E736 /* Resources */,
 				9CEE85C0AA6DABF4506C9D63 /* Embed System Extensions */,
+				AX10050 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				DA703E0CEAA502F686AA37BF /* PBXTargetDependency */,
+				AX10061 /* PBXTargetDependency */,
 			);
 			name = BaoLianDeng;
 			packageProductDependencies = (
@@ -462,6 +539,7 @@
 			targets = (
 				F66874266FF58B2DD8903C6E /* BaoLianDeng */,
 				037A5AF56A256698DCED8763 /* TransparentProxy */,
+				AX10001 /* TransparentProxyAppex */,
 				T10001 /* BaoLianDengTests */,
 			);
 		};
@@ -485,6 +563,15 @@
 			files = (
 				GEO002 /* geoip.metadb in Resources */,
 				GEO004 /* geosite.dat in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AX10007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AX10034 /* geoip.metadb in Resources */,
+				AX10035 /* geosite.dat in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -545,6 +632,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AX10005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AX10020 /* TransparentProxyProvider.swift in Sources */,
+				AX10021 /* UDPNATRelay.swift in Sources */,
+				AX10022 /* SOCKS5Client.swift in Sources */,
+				AX10023 /* AppLogger.swift in Sources */,
+				AX10024 /* Constants.swift in Sources */,
+				AX10025 /* ConfigManager.swift in Sources */,
+				AX10027 /* PerAppProxySettings.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		T10005 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -575,6 +676,12 @@
 			target = F66874266FF58B2DD8903C6E /* BaoLianDeng */;
 			targetProxy = T10011 /* PBXContainerItemProxy */;
 		};
+		AX10061 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = TransparentProxyAppex;
+			target = AX10001 /* TransparentProxyAppex */;
+			targetProxy = AX10060 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -585,7 +692,7 @@
 				CODE_SIGN_ENTITLEMENTS = TransparentProxyMac/TransparentProxyMac.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 63;
+				CURRENT_PROJECT_VERSION = 64;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -623,7 +730,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 63;
+				CURRENT_PROJECT_VERSION = 64;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -721,6 +828,68 @@
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
+		};
+		AX10003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TransparentProxyMac/TransparentProxyMac.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 105;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Framework",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TransparentProxyAppex/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 5.5;
+				NE_PROVIDER_SUFFIX = "";
+				OTHER_LDFLAGS = (
+					"-lresolv",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.TransparentProxy;
+				PRODUCT_NAME = TransparentProxy;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AX10004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TransparentProxyMac/TransparentProxyMac.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 64;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Framework",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TransparentProxyAppex/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 5.5;
+				NE_PROVIDER_SUFFIX = "";
+				OTHER_LDFLAGS = (
+					"-lresolv",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.TransparentProxy;
+				PRODUCT_NAME = TransparentProxy;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
 		};
 		T10003 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -832,6 +1001,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		AX10002 /* Build configuration list for PBXNativeTarget "TransparentProxyAppex" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AX10004 /* Release */,
+				AX10003 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		T10002 /* Build configuration list for PBXNativeTarget "BaoLianDengTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -893,6 +1071,11 @@
 			productName = FirebaseAnalytics;
 		};
 		BDB2BE65B199185132229163 /* Yams */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = YMS0001 /* XCRemoteSwiftPackageReference "Yams" */;
+			productName = Yams;
+		};
+		AX10040 /* Yams */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = YMS0001 /* XCRemoteSwiftPackageReference "Yams" */;
 			productName = Yams;
