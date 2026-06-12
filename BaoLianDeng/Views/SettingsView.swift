@@ -71,12 +71,16 @@ struct SettingsView: View {
                 }
             }
 
-            Section("System Extension") {
-                Button("Uninstall System Extension") {
-                    vpnManager.stop()
-                    vpnManager.deactivateSystemExtension()
+            // App-extension builds (Mac App Store) have no system extension
+            // to uninstall — the provider lives inside the app bundle.
+            if !VPNManager.providerIsAppExtension {
+                Section("System Extension") {
+                    Button("Uninstall System Extension") {
+                        vpnManager.stop()
+                        vpnManager.deactivateSystemExtension()
+                    }
+                    .foregroundStyle(.red)
                 }
-                .foregroundStyle(.red)
             }
 
             Section("About") {
