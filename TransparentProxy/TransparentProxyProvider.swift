@@ -202,6 +202,37 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         return false
     }
 
+    // MARK: - Flow open helper
+
+    /// Open a proxy flow, bridging the completion-handler API to async.
+    ///
+    /// `NEAppProxy*Flow.open(withLocalEndpoint:)` can invoke its completion
+    /// handler more than once during teardown races. A bare
+    /// `withCheckedThrowingContinuation` would then call `cont.resume` twice and
+    /// trap with "SWIFT TASK CONTINUATION MISUSE" (EXC_BREAKPOINT), killing the
+    /// extension. The `resumed` flag (guarded by a lock, since the handler may
+    /// fire on different threads) makes resumption happen exactly once.
+    private func openFlow(_ flow: NEAppProxyFlow) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let lock = NSLock()
+            var resumed = false
+            flow.open(withLocalEndpoint: nil) { error in
+                lock.lock()
+                if resumed {
+                    lock.unlock()
+                    return
+                }
+                resumed = true
+                lock.unlock()
+                if let error = error {
+                    cont.resume(throwing: error)
+                } else {
+                    cont.resume()
+                }
+            }
+        }
+    }
+
     // MARK: - TCP Flow (SOCKS5 relay)
 
     private func handleTCPFlow(_ flow: NEAppProxyTCPFlow) {
@@ -235,15 +266,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 )
 
                 // Open the flow
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                    flow.open(withLocalEndpoint: nil) { error in
-                        if let error = error {
-                            cont.resume(throwing: error)
-                        } else {
-                            cont.resume()
-                        }
-                    }
-                }
+                try await openFlow(flow)
 
                 // Relay bidirectionally: flow ↔ SOCKS5 connection
                 await relayTCP(flow: flow, connection: conn)
@@ -267,15 +290,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         Task {
             do {
                 // Open the UDP flow
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                    flow.open(withLocalEndpoint: nil) { error in
-                        if let error = error {
-                            cont.resume(throwing: error)
-                        } else {
-                            cont.resume()
-                        }
-                    }
-                }
+                try await openFlow(flow)
 
                 // Create relay lazily — initialized on first non-DNS datagram
                 var relay: UDPNATRelay?
@@ -306,7 +321,20 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             var readError: Error?
 
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                // Like `open`, `readDatagrams` can fire its completion handler
+                // more than once during teardown races; the lock-guarded
+                // `resumed` flag keeps `cont.resume` to exactly one call so we
+                // don't trap with a continuation-misuse EXC_BREAKPOINT.
+                let lock = NSLock()
+                var resumed = false
                 flow.readDatagrams { dgs, eps, err in
+                    lock.lock()
+                    if resumed {
+                        lock.unlock()
+                        return
+                    }
+                    resumed = true
+                    lock.unlock()
                     datagrams = dgs ?? []
                     endpoints = (eps ?? []).compactMap {
                         $0 as? NWHostEndpoint

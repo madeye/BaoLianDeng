@@ -42,6 +42,7 @@ final class UDPNATRelay {
     private var readSource: DispatchSourceRead?
     private let sentAddresses = NSMutableSet()  // Thread-safe via lock
     private let lock = NSLock()
+    private var closed = false  // guarded by `lock`; ensures fd is closed exactly once
     private weak var flow: NEAppProxyUDPFlow?
 
     init?(flow: NEAppProxyUDPFlow) {
@@ -118,7 +119,14 @@ final class UDPNATRelay {
             Darwin.close(fd)
         }
         source.resume()
+        // Publish under the lock so `cancel()` (which reads `readSource` under
+        // the same lock) sees a consistent value. The relay's lifecycle is
+        // single-Task — every `startReceiving()` completes before `cancel()`
+        // runs — so `closed` can't already be set here; the lock is purely for
+        // memory-visibility consistency with the teardown path.
+        lock.lock()
         readSource = source
+        lock.unlock()
     }
 
     private func receiveDatagrams() {
@@ -163,9 +171,24 @@ final class UDPNATRelay {
     }
 
     func cancel() {
-        if let source = readSource {
+        // Close the fd exactly once. `cancel()` is reachable both from the
+        // provider's explicit teardown and from `deinit`; without this guard
+        // the fd would be closed twice. By the time the second close runs the
+        // kernel has often handed fd 26 (etc.) to a *guarded* descriptor opened
+        // by Network.framework/dispatch, so the stray close trips EXC_GUARD
+        // (GUARD_TYPE_FD / CLOSE) and the extension is killed.
+        lock.lock()
+        if closed {
+            lock.unlock()
+            return
+        }
+        closed = true
+        let source = readSource
+        readSource = nil
+        lock.unlock()
+
+        if let source = source {
             source.cancel()  // fd closed in cancel handler
-            readSource = nil
         } else {
             Darwin.close(fd)  // No read source — close fd directly
         }
