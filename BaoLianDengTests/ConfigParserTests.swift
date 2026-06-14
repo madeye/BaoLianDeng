@@ -856,3 +856,35 @@ struct URISubscriptionE2ETests {
         #expect(!merged.contains("MATCH,PROXY"))
     }
 }
+
+// MARK: - Bundled Geodata
+
+@Suite("Bundled geodata")
+struct BundledGeodataTests {
+
+    @Test("Copies embedded provider geodata without network fallback")
+    func copiesEmbeddedProviderGeodata() throws {
+        let tempDir = NSTemporaryDirectory() + "bld-geodata-test-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        for file in ConfigManager.geodataFiles {
+            let bundled = try #require(
+                ConfigManager.bundledGeodataURL(name: file.name, ext: file.ext),
+                "Expected bundled \(file.name).\(file.ext) to be discoverable"
+            )
+            #expect(FileManager.default.fileExists(atPath: bundled.path))
+        }
+
+        ConfigManager.shared.ensureGeodataFiles(configDir: tempDir)
+
+        for file in ConfigManager.geodataFiles {
+            let copied = URL(fileURLWithPath: tempDir)
+                .appendingPathComponent("\(file.name).\(file.ext)")
+            #expect(FileManager.default.fileExists(atPath: copied.path))
+            let attributes = try FileManager.default.attributesOfItem(atPath: copied.path)
+            let size = try #require(attributes[.size] as? NSNumber)
+            #expect(size.intValue > 0)
+        }
+    }
+}

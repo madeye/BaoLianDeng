@@ -58,8 +58,10 @@ final class ConfigManager {
             let dest = (configDir as NSString).appendingPathComponent(filename)
             guard !fileManager.fileExists(atPath: dest) else { continue }
 
-            // Try bundled copy first
-            if let src = Bundle.main.path(forResource: file.name, ofType: file.ext) {
+            // Try bundled copy first. In the main app, geodata is packaged
+            // inside the embedded provider extension rather than as a top-level
+            // app resource.
+            if let src = Self.bundledGeodataURL(name: file.name, ext: file.ext)?.path {
                 do {
                     try fileManager.copyItem(atPath: src, toPath: dest)
                     AppLogger.config.notice("Copied bundled \(filename) to config dir")
@@ -96,6 +98,50 @@ final class ConfigManager {
             task.resume()
             semaphore.wait()
         }
+    }
+
+    static func bundledGeodataURL(name: String, ext: String, bundle: Bundle = .main) -> URL? {
+        let fileManager = FileManager.default
+        if let path = bundle.path(forResource: name, ofType: ext) {
+            return URL(fileURLWithPath: path)
+        }
+
+        let filename = "\(name).\(ext)"
+        var bundleDirs: [URL] = []
+        if let plugInsURL = bundle.builtInPlugInsURL {
+            bundleDirs.append(plugInsURL)
+        }
+        bundleDirs.append(
+            bundle.bundleURL
+                .appendingPathComponent("Contents", isDirectory: true)
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("SystemExtensions", isDirectory: true)
+        )
+
+        for dir in bundleDirs {
+            guard let children = try? fileManager.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for child in children {
+                let resourceURL = child
+                    .appendingPathComponent("Contents", isDirectory: true)
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent(filename)
+                if fileManager.fileExists(atPath: resourceURL.path) {
+                    return resourceURL
+                }
+
+                let flatURL = child.appendingPathComponent(filename)
+                if fileManager.fileExists(atPath: flatURL.path) {
+                    return flatURL
+                }
+            }
+        }
+
+        return nil
     }
 
     func saveConfig(_ yaml: String) throws {
