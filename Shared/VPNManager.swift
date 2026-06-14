@@ -569,7 +569,7 @@ final class VPNManager: NSObject, ObservableObject {
             }
             self?.dbg("selectNode: \(nodeName) -> \(targets.map { "\($0.group)=\($0.selection)" })")
             for (groupName, selection) in targets {
-                guard let encoded = groupName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                guard let encoded = MihomoURL.pathSegment(groupName),
                       let putURL = URL(string: "http://\(addr)/proxies/\(encoded)"),
                       let body = try? JSONSerialization.data(withJSONObject: ["name": selection]) else { continue }
                 var request = URLRequest(url: putURL)

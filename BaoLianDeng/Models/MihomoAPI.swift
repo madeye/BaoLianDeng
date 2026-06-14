@@ -168,7 +168,10 @@ enum MihomoAPI {
     }
 
     static func closeConnection(_ id: String) async throws {
-        try await delete("/connections/\(id)")
+        guard let encoded = MihomoURL.pathSegment(id) else {
+            throw MihomoAPIError.invalidURL
+        }
+        try await delete("/connections/\(encoded)")
     }
 
     static func closeAllConnections() async throws {
@@ -211,7 +214,7 @@ enum MihomoAPI {
 
     /// Select a proxy node within a group via PUT /proxies/{group}
     static func selectProxy(group: String, name: String) async throws {
-        guard let encoded = group.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+        guard let encoded = MihomoURL.pathSegment(group),
               let url = URL(string: "\(baseURL)/proxies/\(encoded)") else {
             throw MihomoAPIError.invalidURL
         }
@@ -229,7 +232,7 @@ enum MihomoAPI {
     // MARK: - Delay Testing
 
     static func testGroupDelay(group: String, url: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> [MihomoDelayResult] {
-        guard let encoded = group.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+        guard let encoded = MihomoURL.pathSegment(group),
               let url = URL(string: "\(baseURL)/group/\(encoded)/delay?url=\(url)&timeout=\(timeout)") else {
             throw MihomoAPIError.invalidURL
         }
@@ -255,7 +258,7 @@ enum MihomoAPI {
     }
 
     static func testProxyDelay(proxy: String, url: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> Int {
-        guard let encoded = proxy.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+        guard let encoded = MihomoURL.pathSegment(proxy),
               let url = URL(string: "\(baseURL)/proxies/\(encoded)/delay?url=\(url)&timeout=\(timeout)") else {
             throw MihomoAPIError.invalidURL
         }

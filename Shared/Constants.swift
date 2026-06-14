@@ -46,6 +46,18 @@ enum AppConstants {
     }
 }
 
+enum MihomoURL {
+    private static let pathSegmentAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        return allowed
+    }()
+
+    static func pathSegment(_ value: String) -> String? {
+        value.addingPercentEncoding(withAllowedCharacters: pathSegmentAllowed)
+    }
+}
+
 /// Pick a free 127.0.0.1 port by binding a SOCK_STREAM socket to port 0,
 /// reading the assigned port, then closing. There's a small TOCTOU
 /// window before the next consumer binds, but the ephemeral port space

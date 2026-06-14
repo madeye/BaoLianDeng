@@ -187,6 +187,25 @@ struct MihomoAPIErrorTests {
     }
 }
 
+@Suite("Mihomo URL Encoding")
+struct MihomoURLEncodingTests {
+
+    @Test("Path segment encoding escapes slash in proxy names")
+    func pathSegmentEscapesSlash() {
+        let encoded = MihomoURL.pathSegment("Auto/Asia #1")
+
+        #expect(encoded == "Auto%2FAsia%20%231")
+    }
+
+    @Test("Path segment encoding preserves a single route component")
+    func pathSegmentPreservesSingleRouteComponent() {
+        let encoded = MihomoURL.pathSegment("HK/US 100%")
+        let url = URL(string: "http://127.0.0.1:9090/proxies/\(encoded ?? "")")
+
+        #expect(url?.absoluteString == "http://127.0.0.1:9090/proxies/HK%2FUS%20100%25")
+    }
+}
+
 // MARK: - Delay Color Tests
 
 @Suite("Delay Color Logic")
