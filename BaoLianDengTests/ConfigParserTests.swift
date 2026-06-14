@@ -503,6 +503,58 @@ struct SanitizeConfigStringTests {
     }
 }
 
+// MARK: - Config Scalar Updates
+
+@Suite("Config top-level scalar replacement")
+struct ConfigTopLevelScalarReplacementTests {
+
+    @Test("Updates only the top-level mode key")
+    func updatesOnlyTopLevelMode() {
+        let yaml = """
+        mode: rule
+        dns:
+          enhanced-mode: redir-host
+        proxies:
+          - name: obfs-node
+            type: ss
+            server: 1.2.3.4
+            port: 8388
+            plugin: obfs
+            plugin-opts:
+              mode: websocket
+        """
+
+        let updated = ConfigManager.replacingTopLevelScalar(
+            in: yaml, key: "mode", value: "global"
+        )
+
+        #expect(updated.contains("mode: global"))
+        #expect(updated.contains("enhanced-mode: redir-host"))
+        #expect(updated.contains("mode: websocket"))
+        #expect(!updated.contains("mode: rule"))
+    }
+
+    @Test("Updates only the top-level log-level key")
+    func updatesOnlyTopLevelLogLevel() {
+        let yaml = """
+        log-level: info
+        proxy-providers:
+          demo:
+            type: http
+            log-level: debug
+            url: https://example.com/sub.yaml
+        """
+
+        let updated = ConfigManager.replacingTopLevelScalar(
+            in: yaml, key: "log-level", value: "error"
+        )
+
+        #expect(updated.hasPrefix("log-level: error"))
+        #expect(updated.contains("    log-level: debug"))
+        #expect(!updated.contains("log-level: info"))
+    }
+}
+
 // MARK: - Subscription Parser (URI Lists)
 
 @Suite("Subscription Fetch Response")

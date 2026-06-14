@@ -128,10 +128,7 @@ final class ConfigManager {
         let level = AppConstants.sharedDefaults
             .string(forKey: "logLevel") ?? "info"
         guard var config = try? loadConfig() else { return }
-        let levels = ["debug", "info", "warning", "error", "silent"]
-        for l in levels {
-            config = config.replacingOccurrences(of: "log-level: \(l)", with: "log-level: \(level)")
-        }
+        config = Self.replacingTopLevelScalar(in: config, key: "log-level", value: level)
         try? saveConfig(config)
     }
 
@@ -140,10 +137,7 @@ final class ConfigManager {
         let mode = AppConstants.sharedDefaults
             .string(forKey: "proxyMode") ?? "rule"
         guard var config = try? loadConfig() else { return }
-        let modes = ["rule", "global", "direct"]
-        for m in modes {
-            config = config.replacingOccurrences(of: "mode: \(m)", with: "mode: \(mode)")
-        }
+        config = Self.replacingTopLevelScalar(in: config, key: "mode", value: mode)
         config = updateGlobalProxyGroup(config, enabled: mode == "global")
         try? saveConfig(config)
     }
@@ -350,6 +344,21 @@ final class ConfigManager {
         var filtered = Array(lines[0..<start])
         filtered.append(contentsOf: lines[end...])
         config = filtered.joined(separator: "\n")
+    }
+
+    static func replacingTopLevelScalar(in yaml: String, key: String, value: String) -> String {
+        let normalized = yaml
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.components(separatedBy: "\n").map { line -> String in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !line.hasPrefix(" "), !line.hasPrefix("\t"),
+                  trimmed.hasPrefix("\(key):") else {
+                return line
+            }
+            return "\(key): \(value)"
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Merge a Clash subscription YAML into our base config.
