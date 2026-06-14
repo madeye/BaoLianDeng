@@ -376,6 +376,19 @@ struct SubscriptionParserURITests {
         #expect(yaml.contains("type: select"))
     }
 
+    @Test("Generated YAML escapes URI names in proxy group members")
+    func generatedYAMLEscapesProxyGroupMemberNames() {
+        let uri = "vless://uuid@1.2.3.4:443?security=tls&type=ws#Quote%22Name%5CNode"
+        let base64 = Data(uri.utf8).base64EncodedString()
+        let result = SubscriptionParser.parseWithYAML(base64)
+        let yaml = result.generatedYAML!
+
+        #expect(result.nodes[0].name == "Quote\"Name\\Node")
+        #expect(yaml.contains("  - name: \"Quote\\\"Name\\\\Node\""))
+        #expect(yaml.contains("      - \"Quote\\\"Name\\\\Node\""))
+        #expect(!yaml.contains("      - \"Quote\"Name\\Node\""))
+    }
+
     @Test("Generated YAML sections extractable by extractYAMLSections")
     func generatedYAMLExtractable() {
         let uri = "vless://uuid@1.2.3.4:443?security=tls&type=ws#Node1"

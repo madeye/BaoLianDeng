@@ -383,7 +383,8 @@ enum SubscriptionParser {
         }
 
         // Build complete YAML with proxies + proxy-groups (no leading indentation)
-        let nodeNames = nodes.map { "      - \"\($0.name)\"" }.joined(separator: "\n")
+        let nodeNames = nodes.map { "      - \"\(yamlEscape($0.name))\"" }
+            .joined(separator: "\n")
         var fullYAML = "proxies:\n"
         fullYAML += yamlProxies.joined(separator: "\n")
         fullYAML += "\n\nproxy-groups:\n"
