@@ -22,6 +22,7 @@ struct BaoLianDengApp: App {
     @StateObject private var trafficStore = TrafficStore.shared
 
     init() {
+        guard !AppConstants.isRunningUnitTests else { return }
         FirebaseApp.configure()
         ConfigManager.shared.sanitizeConfig()
     }

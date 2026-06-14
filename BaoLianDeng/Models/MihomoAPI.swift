@@ -84,14 +84,18 @@ enum MihomoAPIError: Error, LocalizedError {
 }
 
 enum MihomoAPI {
-    /// Returns "" when the tunnel hasn't run yet (the live controller addr
-    /// is published by the extension at startup, not known up-front). The
-    /// empty string makes every URL(string:) call below fail to parse,
-    /// which surfaces as `MihomoAPIError.invalidURL` at the call site —
-    /// the same path as a real malformed URL.
-    private static var baseURL: String {
-        guard let addr = AppConstants.externalControllerAddr else { return "" }
-        return "http://\(addr)"
+    static func makeURL(pathSegments: [String], queryItems: [URLQueryItem] = []) throws -> URL {
+        guard let addr = AppConstants.externalControllerAddr, !addr.isEmpty else {
+            throw MihomoAPIError.notConnected
+        }
+        guard let url = AppConstants.externalControllerURL(
+            controllerAddr: addr,
+            pathSegments: pathSegments,
+            queryItems: queryItems
+        ) else {
+            throw MihomoAPIError.invalidURL
+        }
+        return url
     }
 
     // MARK: - Rules
@@ -116,13 +120,17 @@ enum MihomoAPI {
 
     static func fetchConnections() async throws -> MihomoConnectionsResponse {
         let data = try await get("/connections")
+        return try parseConnectionsResponse(data)
+    }
+
+    static func parseConnectionsResponse(_ data: Data) throws -> MihomoConnectionsResponse {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let connections = json["connections"] as? [[String: Any]] else {
             throw MihomoAPIError.decodingFailed
         }
 
-        let uploadTotal = (json["upload_total"] as? NSNumber)?.int64Value ?? 0
-        let downloadTotal = (json["download_total"] as? NSNumber)?.int64Value ?? 0
+        let uploadTotal = int64Value(json["uploadTotal"] ?? json["upload_total"])
+        let downloadTotal = int64Value(json["downloadTotal"] ?? json["download_total"])
 
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -132,15 +140,15 @@ enum MihomoAPI {
             let metadata = conn["metadata"] as? [String: Any] ?? [:]
             let host = metadata["host"] as? String ?? ""
             let destIP = metadata["destinationIP"] as? String ?? ""
-            let destPort = (metadata["destinationPort"] as? String).flatMap(Int.init) ?? 0
+            let destPort = intValue(metadata["destinationPort"])
             let network = metadata["network"] as? String ?? ""
             let type = metadata["type"] as? String ?? ""
 
             let rule = conn["rule"] as? String ?? ""
             let rulePayload = conn["rulePayload"] as? String ?? ""
             let chains = conn["chains"] as? [String] ?? []
-            let upload = (conn["upload"] as? NSNumber)?.int64Value ?? 0
-            let download = (conn["download"] as? NSNumber)?.int64Value ?? 0
+            let upload = int64Value(conn["upload"])
+            let download = int64Value(conn["download"])
             let startStr = conn["start"] as? String ?? ""
             let start = isoFormatter.date(from: startStr) ?? Date()
 
@@ -168,11 +176,11 @@ enum MihomoAPI {
     }
 
     static func closeConnection(_ id: String) async throws {
-        try await delete("/connections/\(id)")
+        try await delete(pathSegments: ["connections", id])
     }
 
     static func closeAllConnections() async throws {
-        try await delete("/connections")
+        try await delete(pathSegments: ["connections"])
     }
 
     // MARK: - Proxy Groups & Providers
@@ -211,10 +219,7 @@ enum MihomoAPI {
 
     /// Select a proxy node within a group via PUT /proxies/{group}
     static func selectProxy(group: String, name: String) async throws {
-        guard let encoded = group.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(baseURL)/proxies/\(encoded)") else {
-            throw MihomoAPIError.invalidURL
-        }
+        let url = try makeURL(pathSegments: ["proxies", group])
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -228,11 +233,14 @@ enum MihomoAPI {
 
     // MARK: - Delay Testing
 
-    static func testGroupDelay(group: String, url: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> [MihomoDelayResult] {
-        guard let encoded = group.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(baseURL)/group/\(encoded)/delay?url=\(url)&timeout=\(timeout)") else {
-            throw MihomoAPIError.invalidURL
-        }
+    static func testGroupDelay(group: String, url testURL: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> [MihomoDelayResult] {
+        let url = try makeURL(
+            pathSegments: ["group", group, "delay"],
+            queryItems: [
+                URLQueryItem(name: "url", value: testURL),
+                URLQueryItem(name: "timeout", value: String(timeout)),
+            ]
+        )
 
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -254,11 +262,14 @@ enum MihomoAPI {
         }
     }
 
-    static func testProxyDelay(proxy: String, url: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> Int {
-        guard let encoded = proxy.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(baseURL)/proxies/\(encoded)/delay?url=\(url)&timeout=\(timeout)") else {
-            throw MihomoAPIError.invalidURL
-        }
+    static func testProxyDelay(proxy: String, url testURL: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> Int {
+        let url = try makeURL(
+            pathSegments: ["proxies", proxy, "delay"],
+            queryItems: [
+                URLQueryItem(name: "url", value: testURL),
+                URLQueryItem(name: "timeout", value: String(timeout)),
+            ]
+        )
 
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -276,9 +287,7 @@ enum MihomoAPI {
     // MARK: - Config / Mode
 
     static func patchConfig(_ config: [String: Any]) async throws {
-        guard let url = URL(string: "\(baseURL)/configs") else {
-            throw MihomoAPIError.invalidURL
-        }
+        let url = try makeURL(pathSegments: ["configs"])
         var request = URLRequest(url: url)
         request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -293,9 +302,10 @@ enum MihomoAPI {
     /// Reload config from disk. Forces mihomo to re-read config.yaml and apply changes.
     /// This will close existing connections.
     static func reloadConfig() async throws {
-        guard let url = URL(string: "\(baseURL)/configs?force=true") else {
-            throw MihomoAPIError.invalidURL
-        }
+        let url = try makeURL(
+            pathSegments: ["configs"],
+            queryItems: [URLQueryItem(name: "force", value: "true")]
+        )
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -336,10 +346,13 @@ enum MihomoAPI {
     // MARK: - DNS
 
     static func queryDNS(name: String, type: String = "A") async throws -> [String: Any] {
-        guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(baseURL)/dns/query?name=\(encoded)&type=\(type)") else {
-            throw MihomoAPIError.invalidURL
-        }
+        let url = try makeURL(
+            pathSegments: ["dns", "query"],
+            queryItems: [
+                URLQueryItem(name: "name", value: name),
+                URLQueryItem(name: "type", value: type),
+            ]
+        )
         let (data, _) = try await URLSession.shared.data(from: url)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw MihomoAPIError.decodingFailed
@@ -361,9 +374,7 @@ enum MihomoAPI {
     // MARK: - HTTP Helpers
 
     private static func get(_ path: String) async throws -> Data {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
-            throw MihomoAPIError.invalidURL
-        }
+        let url = try makeURL(pathSegments: pathSegments(from: path))
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw MihomoAPIError.requestFailed("GET \(path) failed")
@@ -372,14 +383,37 @@ enum MihomoAPI {
     }
 
     private static func delete(_ path: String) async throws {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
-            throw MihomoAPIError.invalidURL
-        }
+        try await delete(pathSegments: pathSegments(from: path), errorPath: path)
+    }
+
+    private static func delete(pathSegments: [String]) async throws {
+        try await delete(pathSegments: pathSegments, errorPath: "/" + pathSegments.joined(separator: "/"))
+    }
+
+    private static func delete(pathSegments: [String], errorPath: String) async throws {
+        let url = try makeURL(pathSegments: pathSegments)
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw MihomoAPIError.requestFailed("DELETE \(path) failed")
+            throw MihomoAPIError.requestFailed("DELETE \(errorPath) failed")
         }
+    }
+
+    private static func pathSegments(from path: String) -> [String] {
+        path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    private static func intValue(_ value: Any?) -> Int {
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) ?? 0 }
+        return 0
+    }
+
+    private static func int64Value(_ value: Any?) -> Int64 {
+        if let number = value as? NSNumber { return number.int64Value }
+        if let int = value as? Int { return Int64(int) }
+        if let string = value as? String { return Int64(string) ?? 0 }
+        return 0
     }
 }

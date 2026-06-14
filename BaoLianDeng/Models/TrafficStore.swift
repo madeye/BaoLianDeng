@@ -150,8 +150,7 @@ final class TrafficStore: ObservableObject {
     }
 
     private func fetchConnections() {
-        guard let addr = AppConstants.externalControllerAddr,
-              let url = URL(string: "http://\(addr)/connections") else { return }
+        guard let url = AppConstants.externalControllerURL(pathSegments: ["connections"]) else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             guard let data = data, error == nil else { return }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -161,12 +160,19 @@ final class TrafficStore: ObservableObject {
             // The tunnel tracks total upload/download across all connections.
             // Per-connection stats are only finalized when connections close,
             // so use the tunnel totals for accurate real-time tracking.
-            let uploadTotal = (json["uploadTotal"] as? NSNumber)?.int64Value ?? 0
-            let downloadTotal = (json["downloadTotal"] as? NSNumber)?.int64Value ?? 0
+            let uploadTotal = Self.int64Value(json["upload_total"] ?? json["uploadTotal"])
+            let downloadTotal = Self.int64Value(json["download_total"] ?? json["downloadTotal"])
             Task { @MainActor [weak self] in
                 self?.processConnections(connections, uploadTotal: uploadTotal, downloadTotal: downloadTotal)
             }
         }.resume()
+    }
+
+    private static func int64Value(_ value: Any?) -> Int64 {
+        if let number = value as? NSNumber { return number.int64Value }
+        if let int = value as? Int { return Int64(int) }
+        if let string = value as? String { return Int64(string) ?? 0 }
+        return 0
     }
 
     private func processConnections(_ connections: [[String: Any]], uploadTotal: Int64, downloadTotal: Int64) {

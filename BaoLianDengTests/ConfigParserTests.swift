@@ -247,6 +247,176 @@ struct MergeSubscriptionTests {
     }
 }
 
+@Suite("Proxy group serialization")
+struct ProxyGroupSerializationTests {
+
+    @Test("Quotes editable proxy group string values")
+    func quotesEditableProxyGroupStringValues() {
+        let groups = [
+            EditableProxyGroup(
+                name: "Node # chooser",
+                type: "select",
+                proxies: ["proxy: one", "line\nbreak"],
+                url: "https://example.com/health?x=1#frag",
+                interval: 300
+            )
+        ]
+
+        let yaml = ConfigManager.shared.updateProxyGroups(
+            groups,
+            in: "rules:\n  - MATCH,DIRECT"
+        )
+
+        #expect(yaml.contains("  - name: \"Node # chooser\""))
+        #expect(yaml.contains("    url: \"https://example.com/health?x=1#frag\""))
+        #expect(yaml.contains("      - \"proxy: one\""))
+        #expect(yaml.contains("      - \"line\\nbreak\""))
+
+        let parsed = ConfigManager.shared.parseProxyGroups(from: yaml)
+        #expect(parsed.count == 1)
+        #expect(parsed[0].name == "Node # chooser")
+        #expect(parsed[0].proxies == ["proxy: one", "line\nbreak"])
+    }
+
+    @Test("Global proxy group quotes selected node and replaces previous group")
+    func globalProxyGroupQuotesSelectedNodeAndReplacesPreviousGroup() {
+        let defaults = AppConstants.sharedDefaults
+        let previous = defaults.string(forKey: "selectedNode")
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: "selectedNode")
+            } else {
+                defaults.removeObject(forKey: "selectedNode")
+            }
+        }
+        defaults.set("node #1\nnext", forKey: "selectedNode")
+
+        let yaml = """
+        proxy-groups:
+          - name: "GLOBAL"
+            type: select
+            proxies:
+              - old
+          - name: PROXY
+            type: select
+            proxies:
+              - node #1
+        rules:
+          - MATCH,PROXY
+        """
+
+        let updated = ConfigManager.shared.updateGlobalProxyGroup(yaml, enabled: true)
+        let globalNameCount = updated.components(separatedBy: "name: \"GLOBAL\"").count - 1
+
+        #expect(globalNameCount == 1)
+        #expect(updated.contains("      - \"node #1\\nnext\""))
+        #expect(!updated.contains("      - old"))
+    }
+
+}
+
+@Suite("Proxy server hostname rewrite")
+struct ProxyServerHostnameRewriteTests {
+
+    @Test("Rewrites only exact server scalar matches")
+    func rewritesOnlyExactServerScalarMatches() {
+        let yaml = """
+        proxies:
+          - name: exact
+            server: example.com
+          - name: prefix
+            server: example.com.hk
+          - name: quoted
+            server: "example.com"
+          - name: single-quoted
+            server: 'example.com'
+          - name: comment
+            server: example.com # pre-resolved at startup
+          - name: different-key
+            servername: example.com
+        """
+
+        let rewritten = ConfigManager.rewriteProxyServerHostnames(
+            in: yaml,
+            hostToIP: ["example.com": "93.184.216.34"]
+        )
+
+        #expect(rewritten.contains("server: 93.184.216.34\n"))
+        #expect(rewritten.contains("server: example.com.hk"))
+        #expect(rewritten.contains("server: \"93.184.216.34\""))
+        #expect(rewritten.contains("server: '93.184.216.34'"))
+        #expect(rewritten.contains("server: 93.184.216.34 # pre-resolved at startup"))
+        #expect(rewritten.contains("servername: example.com"))
+        #expect(!rewritten.contains("93.184.216.34.hk"))
+    }
+
+    @Test("Leaves unknown server values unchanged")
+    func leavesUnknownServerValuesUnchanged() {
+        let yaml = """
+        proxies:
+          - name: untouched
+            server: other.example
+        """
+
+        let rewritten = ConfigManager.rewriteProxyServerHostnames(
+            in: yaml,
+            hostToIP: ["example.com": "93.184.216.34"]
+        )
+
+        #expect(rewritten == yaml)
+    }
+}
+
+@Suite("Rule serialization")
+struct RuleSerializationTests {
+
+    @Test("Quotes rule strings containing comment characters")
+    func quotesRuleStringsContainingCommentCharacters() throws {
+        let rules = [
+            EditableRule(
+                type: "MATCH",
+                value: "",
+                target: "Group #1",
+                noResolve: false
+            ),
+            EditableRule(
+                type: "DOMAIN-SUFFIX",
+                value: "example.com",
+                target: "Proxy #2",
+                noResolve: false
+            ),
+        ]
+
+        let yaml = ConfigManager.shared.updateRules(rules, in: "proxies: []")
+
+        #expect(yaml.contains("  - \"MATCH,Group #1\""))
+        #expect(yaml.contains("  - \"DOMAIN-SUFFIX,example.com,Proxy #2\""))
+
+        let parsed = ConfigManager.shared.parseRules(from: yaml)
+        #expect(parsed.count == 2)
+        #expect(parsed[0].target == "Group #1")
+        #expect(parsed[1].target == "Proxy #2")
+    }
+
+    @Test("Preserves no-resolve marker when quoting rules")
+    func preservesNoResolveMarkerWhenQuotingRules() {
+        let rules = [
+            EditableRule(
+                type: "IP-CIDR",
+                value: "10.0.0.0/8",
+                target: "DIRECT",
+                noResolve: true
+            )
+        ]
+
+        let yaml = ConfigManager.shared.updateRules(rules, in: "proxies: []")
+        let parsed = ConfigManager.shared.parseRules(from: yaml)
+
+        #expect(yaml.contains("  - \"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\""))
+        #expect(parsed.first?.noResolve == true)
+    }
+}
+
 // MARK: - Sanitize Config
 
 @Suite("sanitizeConfigString")
@@ -335,6 +505,48 @@ struct SanitizeConfigStringTests {
 
 // MARK: - Subscription Parser (URI Lists)
 
+@Suite("Subscription Fetch Response")
+struct SubscriptionFetchResponseTests {
+
+    @Test("Rejects non-success HTTP status")
+    func rejectsNonSuccessHTTPStatus() throws {
+        let url = try #require(URL(string: "https://example.com/sub"))
+        let response = try #require(HTTPURLResponse(
+            url: url,
+            statusCode: 403,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+
+        do {
+            _ = try HomeView.parseFetchedSubscription(data: Data("forbidden".utf8), response: response)
+            #expect(Bool(false), "Expected badServerResponse")
+        } catch let error as URLError {
+            #expect(error.code == .badServerResponse)
+        } catch {
+            #expect(Bool(false), "Expected URLError, got \(error)")
+        }
+    }
+
+    @Test("Parses successful URI response")
+    func parsesSuccessfulURIResponse() throws {
+        let url = try #require(URL(string: "https://example.com/sub"))
+        let response = try #require(HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        let uri = "vless://uuid@1.2.3.4:443?security=tls&type=ws#Node1"
+
+        let result = try HomeView.parseFetchedSubscription(data: Data(uri.utf8), response: response)
+
+        #expect(result.nodes.count == 1)
+        #expect(result.nodes.first?.name == "Node1")
+        #expect(result.raw.contains("proxies:"))
+    }
+}
+
 @Suite("SubscriptionParser URI list")
 struct SubscriptionParserURITests {
 
@@ -416,6 +628,79 @@ struct SubscriptionParserURITests {
         #expect(result.generatedYAML != nil)
     }
 
+    @Test("URI query values are decoded and YAML-quoted")
+    func queryValuesDecodedAndQuoted() throws {
+        let uri = "vless://uuid@1.2.3.4:443?security=tls&type=ws&host=edge.example%20%23comment&path=%2Fproxy%3Fx%3Da%3Db%25#Node1"
+
+        let result = SubscriptionParser.parseWithYAML(uri)
+        let yaml = try #require(result.generatedYAML)
+
+        #expect(yaml.contains("server: \"1.2.3.4\""))
+        #expect(yaml.contains("uuid: \"uuid\""))
+        #expect(yaml.contains("path: \"/proxy?x=a=b%\""))
+        #expect(yaml.contains("Host: \"edge.example #comment\""))
+    }
+
+    @Test("URI query values may contain question marks")
+    func queryValuesMayContainQuestionMarks() throws {
+        let uri = "vless://uuid@1.2.3.4:443?security=tls&type=ws&host=edge.example&path=/proxy?x=a=b#Node1"
+
+        let result = SubscriptionParser.parseWithYAML(uri)
+        let yaml = try #require(result.generatedYAML)
+
+        #expect(yaml.contains("path: \"/proxy?x=a=b\""))
+        #expect(yaml.contains("Host: \"edge.example\""))
+    }
+
+    @Test("Unsupported network query does not inject YAML")
+    func unsupportedNetworkQueryDoesNotInjectYAML() throws {
+        let uri = "vless://uuid@1.2.3.4:443?security=tls&type=ws%0A%20%20%20%20injected:%20true#Node1"
+
+        let result = SubscriptionParser.parseWithYAML(uri)
+        let yaml = try #require(result.generatedYAML)
+
+        #expect(yaml.contains("network: tcp"))
+        #expect(!yaml.contains("injected: true"))
+    }
+
+    @Test("Raw shadowsocks user info splits at final at-sign")
+    func rawShadowsocksUserInfoSplitsAtFinalAtSign() throws {
+        let uri = "ss://aes-128-gcm:pa@ss@1.2.3.4:8388#Node1"
+
+        let result = SubscriptionParser.parseWithYAML(uri)
+        let yaml = try #require(result.generatedYAML)
+
+        #expect(result.nodes.count == 1)
+        #expect(yaml.contains("cipher: \"aes-128-gcm\""))
+        #expect(yaml.contains("password: \"pa@ss\""))
+    }
+
+    @Test("Parses URL-safe unpadded vmess payload")
+    func parsesURLSafeUnpaddedVmessPayload() throws {
+        let json = """
+        {"v":"2","ps":"VMess Node","add":"1.2.3.4","port":"443","id":"uuid","aid":"0","net":"ws","type":"none","host":"edge.example","path":"/ws","tls":"tls","sni":"edge.example"}
+        """
+        let payload = Self.urlSafeUnpaddedBase64(json)
+        let result = SubscriptionParser.parseWithYAML("vmess://\(payload)")
+        let yaml = try #require(result.generatedYAML)
+
+        #expect(result.nodes.count == 1)
+        #expect(result.nodes.first?.name == "VMess Node")
+        #expect(yaml.contains("network: ws"))
+        #expect(yaml.contains("Host: \"edge.example\""))
+    }
+
+    @Test("Parses unpadded shadowsocks user info")
+    func parsesUnpaddedShadowsocksUserInfo() throws {
+        let userInfo = Self.urlSafeUnpaddedBase64("aes-128-gcm:password")
+        let result = SubscriptionParser.parseWithYAML("ss://\(userInfo)@1.2.3.4:8388#SSNode")
+        let yaml = try #require(result.generatedYAML)
+
+        #expect(result.nodes.count == 1)
+        #expect(yaml.contains("cipher: \"aes-128-gcm\""))
+        #expect(yaml.contains("password: \"password\""))
+    }
+
     @Test("Clash YAML subscription returns nil generatedYAML")
     func clashYAMLReturnsNilGenerated() {
         let yaml = """
@@ -440,6 +725,14 @@ struct SubscriptionParserURITests {
         let result = SubscriptionParser.parseWithYAML("")
         #expect(result.nodes.isEmpty)
         #expect(result.generatedYAML == nil)
+    }
+
+    private static func urlSafeUnpaddedBase64(_ text: String) -> String {
+        Data(text.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "="))
     }
 }
 

@@ -116,6 +116,7 @@ struct HomeView: View {
             }
         }
         .onAppear {
+            guard !AppConstants.isRunningUnitTests else { return }
             loadSubscriptions()
             loadCurrentMode()
             proxyGroupsVM.loadSelections()
@@ -394,8 +395,10 @@ struct HomeView: View {
     }
 
     static func reloadMihomoConfig(with yaml: String) async {
-        guard let addr = AppConstants.externalControllerAddr,
-              let url = URL(string: "http://\(addr)/configs?force=true") else { return }
+        guard let url = AppConstants.externalControllerURL(
+            pathSegments: ["configs"],
+            queryItems: [URLQueryItem(name: "force", value: "true")]
+        ) else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -404,6 +407,7 @@ struct HomeView: View {
     }
 
     private func fetchNewSubscriptions() {
+        guard !AppConstants.isRunningUnitTests else { return }
         for sub in subscriptions where sub.nodes.isEmpty {
             let id = sub.id
             let url = sub.url
@@ -450,6 +454,7 @@ struct HomeView: View {
     }
 
     private func loadProxyGroups() {
+        guard !AppConstants.isRunningUnitTests else { return }
         // Get fallback YAML from selected subscription
         var fallbackYAML: String?
         if let selID = selectedSubscriptionID,
@@ -596,6 +601,15 @@ struct HomeView: View {
         request.setValue("ClashMetaForAndroid/2.11.1.Meta", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
         AppLogger.log(AppLogger.network, category: "network", "fetchSubscription URL=\(urlString) status=\((response as? HTTPURLResponse)?.statusCode ?? -1) bytes=\(data.count)")
+        return try Self.parseFetchedSubscription(data: data, response: response)
+    }
+
+    static func parseFetchedSubscription(data: Data, response: URLResponse?) throws -> (nodes: [ProxyNode], raw: String) {
+        if let http = response as? HTTPURLResponse,
+           !(200..<300).contains(http.statusCode) {
+            AppLogger.log(AppLogger.network, category: "network", "ERROR: fetchSubscription HTTP status \(http.statusCode)")
+            throw URLError(.badServerResponse)
+        }
         guard let text = String(data: data, encoding: .utf8) else {
             AppLogger.log(AppLogger.network, category: "network", "ERROR: fetchSubscription cannot decode as UTF-8")
             throw URLError(.cannotDecodeContentData)

@@ -349,11 +349,7 @@ enum SubscriptionParser {
         guard !cleaned.isEmpty else { return nil }
         // Base64 text shouldn't contain proxy URI schemes or YAML markers
         if cleaned.hasPrefix("proxies:") || cleaned.contains("://") { return nil }
-        // Pad if needed
-        var padded = cleaned
-        let remainder = padded.count % 4
-        if remainder > 0 { padded += String(repeating: "=", count: 4 - remainder) }
-        guard let data = Data(base64Encoded: padded, options: .ignoreUnknownCharacters),
+        guard let data = decodeBase64(cleaned),
               let decoded = String(data: data, encoding: .utf8) else {
             return nil
         }
@@ -383,7 +379,7 @@ enum SubscriptionParser {
         }
 
         // Build complete YAML with proxies + proxy-groups (no leading indentation)
-        let nodeNames = nodes.map { "      - \"\($0.name)\"" }.joined(separator: "\n")
+        let nodeNames = nodes.map { "      - \(yamlQuoted($0.name))" }.joined(separator: "\n")
         var fullYAML = "proxies:\n"
         fullYAML += yamlProxies.joined(separator: "\n")
         fullYAML += "\n\nproxy-groups:\n"
@@ -427,6 +423,29 @@ enum SubscriptionParser {
     private static func yamlEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "\"", with: "\\\"")
+         .replacingOccurrences(of: "\n", with: "\\n")
+         .replacingOccurrences(of: "\r", with: "\\r")
+         .replacingOccurrences(of: "\t", with: "\\t")
+    }
+
+    private static func yamlQuoted(_ s: String) -> String {
+        "\"\(yamlEscape(s))\""
+    }
+
+    private static func splitOnce(_ s: String, separator: Character) -> (head: String, tail: String?) {
+        guard let separatorIdx = s.firstIndex(of: separator) else {
+            return (s, nil)
+        }
+        return (
+            String(s[..<separatorIdx]),
+            String(s[s.index(after: separatorIdx)...])
+        )
+    }
+
+    private static func normalizedNetwork(_ raw: String?) -> String {
+        let supportedNetworks: Set<String> = ["tcp", "ws", "grpc", "http", "h2"]
+        let network = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "tcp"
+        return supportedNetworks.contains(network) ? network : "tcp"
     }
 
     // MARK: - VLESS Parser
@@ -441,10 +460,8 @@ enum SubscriptionParser {
         guard let schemeEnd = beforeHash.range(of: "://") else { return nil }
         let afterScheme = String(beforeHash[schemeEnd.upperBound...])
 
-        let queryParts = afterScheme.components(separatedBy: "?")
-        let userHost = queryParts[0]
-        let queryString = queryParts.count > 1 ? queryParts[1] : ""
-        let params = parseQueryString(queryString)
+        let (userHost, queryString) = splitOnce(afterScheme, separator: "?")
+        let params = parseQueryString(queryString ?? "")
 
         guard let atIdx = userHost.lastIndex(of: "@") else { return nil }
         let uuid = String(userHost[..<atIdx])
@@ -454,53 +471,52 @@ enum SubscriptionParser {
         guard let port = Int(hostPort[hostPort.index(after: colonIdx)...]) else { return nil }
 
         let name = uniqueName(rawName, seenNames: &seenNames)
-        let escapedName = yamlEscape(name)
 
-        var yaml = "  - name: \"\(escapedName)\"\n"
+        var yaml = "  - name: \(yamlQuoted(name))\n"
         yaml += "    type: vless\n"
-        yaml += "    server: \(server)\n"
+        yaml += "    server: \(yamlQuoted(server))\n"
         yaml += "    port: \(port)\n"
-        yaml += "    uuid: \(uuid)\n"
+        yaml += "    uuid: \(yamlQuoted(uuid))\n"
         yaml += "    udp: true\n"
 
         if let tls = params["security"], tls == "tls" {
             yaml += "    tls: true\n"
-            if let sni = params["sni"] { yaml += "    servername: \(sni)\n" }
-            if let fp = params["fp"] { yaml += "    client-fingerprint: \(fp)\n" }
+            if let sni = params["sni"] { yaml += "    servername: \(yamlQuoted(sni))\n" }
+            if let fp = params["fp"] { yaml += "    client-fingerprint: \(yamlQuoted(fp))\n" }
             if let alpn = params["alpn"] {
-                let alpnList = alpn.removingPercentEncoding?.components(separatedBy: ",") ?? [alpn]
+                let alpnList = alpn.components(separatedBy: ",")
                 yaml += "    alpn:\n"
-                for a in alpnList { yaml += "      - \(a)\n" }
+                for a in alpnList { yaml += "      - \(yamlQuoted(a))\n" }
             }
         } else if params["security"] == "reality" {
             yaml += "    tls: true\n"
-            if let sni = params["sni"] { yaml += "    servername: \(sni)\n" }
-            if let fp = params["fp"] { yaml += "    client-fingerprint: \(fp)\n" }
+            if let sni = params["sni"] { yaml += "    servername: \(yamlQuoted(sni))\n" }
+            if let fp = params["fp"] { yaml += "    client-fingerprint: \(yamlQuoted(fp))\n" }
             yaml += "    reality-opts:\n"
-            if let pbk = params["pbk"] { yaml += "      public-key: \(pbk)\n" }
-            if let sid = params["sid"] { yaml += "      short-id: \(sid)\n" }
+            if let pbk = params["pbk"] { yaml += "      public-key: \(yamlQuoted(pbk))\n" }
+            if let sid = params["sid"] { yaml += "      short-id: \(yamlQuoted(sid))\n" }
         }
 
-        let network = params["type"] ?? "tcp"
+        let network = normalizedNetwork(params["type"])
         yaml += "    network: \(network)\n"
         if network == "ws" {
             yaml += "    ws-opts:\n"
-            if let path = params["path"]?.removingPercentEncoding {
-                yaml += "      path: \"\(yamlEscape(path))\"\n"
+            if let path = params["path"] {
+                yaml += "      path: \(yamlQuoted(path))\n"
             }
             if let host = params["host"] {
                 yaml += "      headers:\n"
-                yaml += "        Host: \(host)\n"
+                yaml += "        Host: \(yamlQuoted(host))\n"
             }
         } else if network == "grpc" {
             if let serviceName = params["serviceName"] {
                 yaml += "    grpc-opts:\n"
-                yaml += "      grpc-service-name: \(serviceName)\n"
+                yaml += "      grpc-service-name: \(yamlQuoted(serviceName))\n"
             }
         }
 
         if let flow = params["flow"], !flow.isEmpty {
-            yaml += "    flow: \(flow)\n"
+            yaml += "    flow: \(yamlQuoted(flow))\n"
         }
 
         let node = ProxyNode(name: name, type: "vless", server: server, port: port)
@@ -513,7 +529,7 @@ enum SubscriptionParser {
         // vmess://base64json
         guard let schemeEnd = uri.range(of: "://") else { return nil }
         let encoded = String(uri[schemeEnd.upperBound...])
-        guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+        guard let data = decodeBase64(encoded),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
@@ -529,24 +545,23 @@ enum SubscriptionParser {
 
         let rawName = (json["ps"] as? String) ?? "\(server):\(port)"
         let name = uniqueName(rawName, seenNames: &seenNames)
-        let escapedName = yamlEscape(name)
         let aid = (json["aid"] as? Int) ?? Int(json["aid"] as? String ?? "0") ?? 0
-        let network = (json["net"] as? String) ?? "tcp"
+        let network = normalizedNetwork(json["net"] as? String)
         let tls = (json["tls"] as? String) ?? ""
 
-        var yaml = "  - name: \"\(escapedName)\"\n"
+        var yaml = "  - name: \(yamlQuoted(name))\n"
         yaml += "    type: vmess\n"
-        yaml += "    server: \(server)\n"
+        yaml += "    server: \(yamlQuoted(server))\n"
         yaml += "    port: \(port)\n"
-        yaml += "    uuid: \(uuid)\n"
+        yaml += "    uuid: \(yamlQuoted(uuid))\n"
         yaml += "    alterId: \(aid)\n"
-        yaml += "    cipher: auto\n"
+        yaml += "    cipher: \"auto\"\n"
         yaml += "    udp: true\n"
 
         if tls == "tls" {
             yaml += "    tls: true\n"
             if let sni = json["sni"] as? String, !sni.isEmpty {
-                yaml += "    servername: \(sni)\n"
+                yaml += "    servername: \(yamlQuoted(sni))\n"
             }
         }
 
@@ -554,15 +569,15 @@ enum SubscriptionParser {
         if network == "ws" {
             yaml += "    ws-opts:\n"
             let path = (json["path"] as? String) ?? "/"
-            yaml += "      path: \"\(yamlEscape(path))\"\n"
+            yaml += "      path: \(yamlQuoted(path))\n"
             if let host = json["host"] as? String, !host.isEmpty {
                 yaml += "      headers:\n"
-                yaml += "        Host: \(host)\n"
+                yaml += "        Host: \(yamlQuoted(host))\n"
             }
         } else if network == "grpc" {
             if let serviceName = json["path"] as? String {
                 yaml += "    grpc-opts:\n"
-                yaml += "      grpc-service-name: \(serviceName)\n"
+                yaml += "      grpc-service-name: \(yamlQuoted(serviceName))\n"
             }
         }
 
@@ -582,10 +597,8 @@ enum SubscriptionParser {
         guard let schemeEnd = beforeHash.range(of: "://") else { return nil }
         let afterScheme = String(beforeHash[schemeEnd.upperBound...])
 
-        let queryParts = afterScheme.components(separatedBy: "?")
-        let userHost = queryParts[0]
-        let queryString = queryParts.count > 1 ? queryParts[1] : ""
-        let params = parseQueryString(queryString)
+        let (userHost, queryString) = splitOnce(afterScheme, separator: "?")
+        let params = parseQueryString(queryString ?? "")
 
         guard let atIdx = userHost.lastIndex(of: "@") else { return nil }
         let password = String(userHost[..<atIdx]).removingPercentEncoding ?? String(userHost[..<atIdx])
@@ -595,34 +608,33 @@ enum SubscriptionParser {
         guard let port = Int(hostPort[hostPort.index(after: colonIdx)...]) else { return nil }
 
         let name = uniqueName(rawName, seenNames: &seenNames)
-        let escapedName = yamlEscape(name)
 
-        var yaml = "  - name: \"\(escapedName)\"\n"
+        var yaml = "  - name: \(yamlQuoted(name))\n"
         yaml += "    type: trojan\n"
-        yaml += "    server: \(server)\n"
+        yaml += "    server: \(yamlQuoted(server))\n"
         yaml += "    port: \(port)\n"
-        yaml += "    password: \"\(yamlEscape(password))\"\n"
+        yaml += "    password: \(yamlQuoted(password))\n"
         yaml += "    udp: true\n"
 
-        if let sni = params["sni"] { yaml += "    sni: \(sni)\n" }
-        if let fp = params["fp"] { yaml += "    client-fingerprint: \(fp)\n" }
+        if let sni = params["sni"] { yaml += "    sni: \(yamlQuoted(sni))\n" }
+        if let fp = params["fp"] { yaml += "    client-fingerprint: \(yamlQuoted(fp))\n" }
 
-        let network = params["type"] ?? "tcp"
+        let network = normalizedNetwork(params["type"])
         if network == "ws" {
             yaml += "    network: ws\n"
             yaml += "    ws-opts:\n"
-            if let path = params["path"]?.removingPercentEncoding {
-                yaml += "      path: \"\(yamlEscape(path))\"\n"
+            if let path = params["path"] {
+                yaml += "      path: \(yamlQuoted(path))\n"
             }
             if let host = params["host"] {
                 yaml += "      headers:\n"
-                yaml += "        Host: \(host)\n"
+                yaml += "        Host: \(yamlQuoted(host))\n"
             }
         } else if network == "grpc" {
             yaml += "    network: grpc\n"
             if let serviceName = params["serviceName"] {
                 yaml += "    grpc-opts:\n"
-                yaml += "      grpc-service-name: \(serviceName)\n"
+                yaml += "      grpc-service-name: \(yamlQuoted(serviceName))\n"
             }
         }
 
@@ -654,17 +666,20 @@ enum SubscriptionParser {
 
         if rest.contains("@") {
             // SIP002: base64(method:password)@server:port or method:password@server:port
-            let parts = rest.components(separatedBy: "@")
-            let userInfo = parts[0]
-            let hostPort = parts[1].components(separatedBy: "?")[0] // strip query
+            guard let atIdx = rest.lastIndex(of: "@") else { return nil }
+            let userInfo = String(rest[..<atIdx])
+            let hostAndQuery = String(rest[rest.index(after: atIdx)...])
+            let hostPort = splitOnce(hostAndQuery, separator: "?").head
 
-            // Decode userInfo if base64
+            // Decode userInfo if base64; plain method:password is also valid.
             let decoded: String
-            if let data = Data(base64Encoded: userInfo, options: .ignoreUnknownCharacters),
-               let d = String(data: data, encoding: .utf8) {
-                decoded = d
+            if userInfo.contains(":") {
+                decoded = userInfo.removingPercentEncoding ?? userInfo
+            } else if let data = decodeBase64(userInfo),
+                      let d = String(data: data, encoding: .utf8) {
+                decoded = d.removingPercentEncoding ?? d
             } else {
-                decoded = userInfo
+                decoded = userInfo.removingPercentEncoding ?? userInfo
             }
 
             guard let colonIdx = decoded.firstIndex(of: ":") else { return nil }
@@ -677,7 +692,7 @@ enum SubscriptionParser {
             port = p
         } else {
             // Legacy: ss://base64(method:password@server:port)
-            guard let data = Data(base64Encoded: rest, options: .ignoreUnknownCharacters),
+            guard let data = decodeBase64(rest),
                   let decoded = String(data: data, encoding: .utf8) else { return nil }
             guard let atIdx = decoded.lastIndex(of: "@") else { return nil }
             let userInfo = String(decoded[..<atIdx])
@@ -693,14 +708,13 @@ enum SubscriptionParser {
 
         let finalName = rawName.isEmpty ? "\(server):\(port)" : rawName
         let name = uniqueName(finalName, seenNames: &seenNames)
-        let escapedName = yamlEscape(name)
 
-        var yaml = "  - name: \"\(escapedName)\"\n"
+        var yaml = "  - name: \(yamlQuoted(name))\n"
         yaml += "    type: ss\n"
-        yaml += "    server: \(server)\n"
+        yaml += "    server: \(yamlQuoted(server))\n"
         yaml += "    port: \(port)\n"
-        yaml += "    cipher: \(method)\n"
-        yaml += "    password: \"\(yamlEscape(password))\"\n"
+        yaml += "    cipher: \(yamlQuoted(method))\n"
+        yaml += "    password: \(yamlQuoted(password))\n"
         yaml += "    udp: true\n"
 
         let node = ProxyNode(name: name, type: "ss", server: server, port: port)
@@ -712,10 +726,26 @@ enum SubscriptionParser {
     private static func parseQueryString(_ query: String) -> [String: String] {
         var result: [String: String] = [:]
         for pair in query.components(separatedBy: "&") {
-            let kv = pair.components(separatedBy: "=")
-            guard kv.count == 2 else { continue }
-            result[kv[0]] = kv[1]
+            guard let separator = pair.firstIndex(of: "=") else { continue }
+            let key = String(pair[..<separator]).removingPercentEncoding ?? String(pair[..<separator])
+            let rawValue = String(pair[pair.index(after: separator)...])
+            let value = rawValue.removingPercentEncoding ?? rawValue
+            result[key] = value
         }
         return result
+    }
+
+    private static func decodeBase64(_ text: String) -> Data? {
+        var normalized = text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        guard !normalized.isEmpty else { return nil }
+        let remainder = normalized.count % 4
+        if remainder > 0 {
+            normalized += String(repeating: "=", count: 4 - remainder)
+        }
+        return Data(base64Encoded: normalized)
     }
 }

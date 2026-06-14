@@ -65,7 +65,7 @@ final class VPNManager: NSObject, ObservableObject {
         super.init()
         // Don't touch the system extension or the user's real NE preferences
         // when the app is only hosting unit tests.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+        if AppConstants.isRunningUnitTests {
             return
         }
         #if canImport(SystemExtensions)
@@ -131,6 +131,7 @@ final class VPNManager: NSObject, ObservableObject {
 
     /// Check if the system extension is enabled by re-probing activation status.
     func checkExtensionStatus(forceRetry: Bool = false) {
+        guard !AppConstants.isRunningUnitTests else { return }
         #if canImport(SystemExtensions)
         if Self.providerIsAppExtension {
             updateInstallState(.active)
@@ -205,6 +206,7 @@ final class VPNManager: NSObject, ObservableObject {
     // MARK: - Manager Lifecycle
 
     func loadManager() {
+        guard !AppConstants.isRunningUnitTests else { return }
         guard !isLoadingManager else { return }
         isLoadingManager = true
         dbg("loadManager called")
@@ -513,8 +515,7 @@ final class VPNManager: NSObject, ObservableObject {
     }
 
     private func selectNodeViaRestAPI(_ nodeName: String, retriesLeft: Int = 0) {
-        guard let addr = AppConstants.externalControllerAddr,
-              let url = URL(string: "http://\(addr)/proxies") else {
+        guard let url = AppConstants.externalControllerURL(pathSegments: ["proxies"]) else {
             // Controller addr not yet published by the extension; retry.
             if retriesLeft > 0 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
@@ -569,8 +570,7 @@ final class VPNManager: NSObject, ObservableObject {
             }
             self?.dbg("selectNode: \(nodeName) -> \(targets.map { "\($0.group)=\($0.selection)" })")
             for (groupName, selection) in targets {
-                guard let encoded = groupName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                      let putURL = URL(string: "http://\(addr)/proxies/\(encoded)"),
+                guard let putURL = AppConstants.externalControllerURL(pathSegments: ["proxies", groupName]),
                       let body = try? JSONSerialization.data(withJSONObject: ["name": selection]) else { continue }
                 var request = URLRequest(url: putURL)
                 request.httpMethod = "PUT"

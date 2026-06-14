@@ -104,6 +104,79 @@ struct MihomoConnectionsResponseTests {
     }
 }
 
+@Suite("Mihomo Connections Parser")
+struct MihomoConnectionsParserTests {
+
+    @Test("Parses current mihomo connection totals and metadata")
+    func parsesCurrentConnectionResponse() throws {
+        let json = """
+        {
+          "uploadTotal": 12345,
+          "downloadTotal": 67890,
+          "connections": [
+            {
+              "id": "conn-1",
+              "metadata": {
+                "host": "example.com",
+                "destinationIP": "93.184.216.34",
+                "destinationPort": "443",
+                "network": "tcp",
+                "type": "HTTPS"
+              },
+              "rule": "DOMAIN-SUFFIX",
+              "rulePayload": "example.com",
+              "chains": ["PROXY", "node-1"],
+              "upload": 111,
+              "download": 222,
+              "start": "2026-06-13T08:00:00.000Z"
+            }
+          ]
+        }
+        """
+
+        let response = try MihomoAPI.parseConnectionsResponse(Data(json.utf8))
+
+        #expect(response.uploadTotal == 12345)
+        #expect(response.downloadTotal == 67890)
+        #expect(response.connections.count == 1)
+        let connection = try #require(response.connections.first)
+        #expect(connection.destinationPort == 443)
+        #expect(connection.upload == 111)
+        #expect(connection.download == 222)
+        #expect(connection.chains == ["PROXY", "node-1"])
+    }
+
+    @Test("Parses legacy totals and numeric ports")
+    func parsesLegacyConnectionResponse() throws {
+        let json = """
+        {
+          "upload_total": "12",
+          "download_total": "34",
+          "connections": [
+            {
+              "id": "conn-2",
+              "metadata": {
+                "destinationPort": 53,
+                "network": "udp"
+              },
+              "upload": "5",
+              "download": "6"
+            }
+          ]
+        }
+        """
+
+        let response = try MihomoAPI.parseConnectionsResponse(Data(json.utf8))
+
+        #expect(response.uploadTotal == 12)
+        #expect(response.downloadTotal == 34)
+        let connection = try #require(response.connections.first)
+        #expect(connection.destinationPort == 53)
+        #expect(connection.upload == 5)
+        #expect(connection.download == 6)
+    }
+}
+
 @Suite("MihomoProxyGroup")
 struct MihomoProxyGroupTests {
 
@@ -122,6 +195,81 @@ struct MihomoProxyGroupTests {
         let group = MihomoProxyGroup(name: "Empty", type: "Selector", now: "", all: [])
         #expect(group.all.isEmpty)
         #expect(group.now == "")
+    }
+}
+
+@Suite("ProxiesResult YAML fallback")
+struct ProxiesResultYAMLTests {
+
+    @Test("Parses quoted proxy and group names")
+    func parsesQuotedProxyAndGroupNames() throws {
+        let yaml = """
+        proxies:
+          - name: "node: one # primary"
+            type: vmess
+            server: 1.2.3.4
+            port: 443
+          - {name: "node, two", type: ss, server: 5.6.7.8, port: 8388}
+        proxy-groups:
+          - name: "Group #1"
+            type: select
+            proxies:
+              - "node: one # primary"
+              - "node, two"
+              - DIRECT
+        rules:
+          - MATCH,Group #1
+        """
+
+        let result = ProxiesResult.fromYAML(yaml)
+
+        #expect(result.proxies["node: one # primary"]?.type == "vmess")
+        #expect(result.proxies["node, two"]?.type == "ss")
+        let group = try #require(result.groups["Group #1"])
+        #expect(group.type == "Selector")
+        #expect(group.now == "node: one # primary")
+        #expect(group.all == ["node: one # primary", "node, two", "DIRECT"])
+    }
+
+    @Test("Parses non-select group types")
+    func parsesNonSelectGroupTypes() throws {
+        let yaml = """
+        proxies:
+          - {name: node1, type: vmess, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Auto
+            type: url-test
+            url: https://www.gstatic.com/generate_204
+            interval: 300
+            proxies:
+              - node1
+        """
+
+        let result = ProxiesResult.fromYAML(yaml)
+        let group = try #require(result.groups["Auto"])
+
+        #expect(group.type == "URLTest")
+        #expect(group.now == "node1")
+        #expect(group.all == ["node1"])
+    }
+
+    @Test("Invalid YAML returns empty result")
+    func invalidYAMLReturnsEmptyResult() {
+        let result = ProxiesResult.fromYAML("proxies: [[[not valid yaml")
+
+        #expect(result.groups.isEmpty)
+        #expect(result.proxies.isEmpty)
+    }
+
+    @Test("Adds built-in direct and reject proxies")
+    func addsBuiltInDirectAndRejectProxies() {
+        let result = ProxiesResult.fromYAML("""
+        proxies: []
+        proxy-groups: []
+        """)
+
+        #expect(result.proxies["DIRECT"]?.type == "Direct")
+        #expect(result.proxies["REJECT"]?.type == "Reject")
     }
 }
 
@@ -184,6 +332,61 @@ struct MihomoAPIErrorTests {
     func conformsToLocalizedError() {
         let error: any LocalizedError = MihomoAPIError.invalidURL
         #expect(error.errorDescription != nil)
+    }
+}
+
+// MARK: - API URL Builder Tests
+
+@Suite("MihomoAPI URL Builder")
+struct MihomoAPIURLBuilderTests {
+
+    @Test("Missing controller address throws notConnected")
+    func missingControllerAddress() {
+        let previousAddr = AppConstants.externalControllerAddr
+        AppConstants.sharedDefaults.removeObject(forKey: AppConstants.externalControllerAddrKey)
+        defer {
+            if let previousAddr {
+                AppConstants.sharedDefaults.set(previousAddr, forKey: AppConstants.externalControllerAddrKey)
+            }
+        }
+
+        do {
+            _ = try MihomoAPI.makeURL(pathSegments: ["rules"])
+            #expect(Bool(false), "Expected notConnected")
+        } catch MihomoAPIError.notConnected {
+            #expect(Bool(true))
+        } catch {
+            #expect(Bool(false), "Expected notConnected, got \(error)")
+        }
+    }
+
+    @Test("Path segments escape reserved characters")
+    func pathSegmentsEscapeReservedCharacters() throws {
+        let url = try #require(AppConstants.externalControllerURL(
+            controllerAddr: "127.0.0.1:12345",
+            pathSegments: ["proxies", "HK/01?fast#primary"]
+        ))
+
+        #expect(url.absoluteString == "http://127.0.0.1:12345/proxies/HK%2F01%3Ffast%23primary")
+    }
+
+    @Test("Query items preserve URL values")
+    func queryItemsPreserveURLValues() throws {
+        let probeURL = "https://example.com/generate_204?a=1&b=2"
+        let url = try #require(AppConstants.externalControllerURL(
+            controllerAddr: "127.0.0.1:12345",
+            pathSegments: ["group", "PROXY", "delay"],
+            queryItems: [
+                URLQueryItem(name: "url", value: probeURL),
+                URLQueryItem(name: "timeout", value: "5000"),
+            ]
+        ))
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let queryItems = components.queryItems ?? []
+
+        #expect(url.path == "/group/PROXY/delay")
+        #expect(queryItems.first(where: { $0.name == "url" })?.value == probeURL)
+        #expect(queryItems.first(where: { $0.name == "timeout" })?.value == "5000")
     }
 }
 

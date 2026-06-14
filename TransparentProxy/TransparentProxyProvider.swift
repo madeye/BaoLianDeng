@@ -819,20 +819,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
 
         if !hostToIP.isEmpty {
-            for (hostname, resolvedIP) in hostToIP {
-                yaml = yaml.replacingOccurrences(
-                    of: "server: \(hostname)",
-                    with: "server: \(resolvedIP)"
-                )
-                yaml = yaml.replacingOccurrences(
-                    of: "server: '\(hostname)'",
-                    with: "server: '\(resolvedIP)'"
-                )
-                yaml = yaml.replacingOccurrences(
-                    of: "server: \"\(hostname)\"",
-                    with: "server: \"\(resolvedIP)\""
-                )
-            }
+            yaml = ConfigManager.rewriteProxyServerHostnames(in: yaml, hostToIP: hostToIP)
             try? yaml.write(
                 toFile: configPath, atomically: true, encoding: .utf8
             )

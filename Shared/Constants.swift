@@ -19,6 +19,9 @@ enum AppConstants {
     static let appGroupIdentifier: String? = nil
     static let tunnelBundleIdentifier = "io.github.baoliandeng.macos.TransparentProxy"
     static let configFileName = "config.yaml"
+    static var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
     /// UserDefaults key. The extension writes the live `host:port` of the
     /// mihomo REST controller here at startup; the main app reads it when
     /// hitting `/proxies`, `/connections`, etc. Updated each tunnel start
@@ -37,6 +40,31 @@ enum AppConstants {
         sharedDefaults.string(forKey: externalControllerAddrKey)
     }
 
+    static func externalControllerURL(pathSegments: [String], queryItems: [URLQueryItem] = []) -> URL? {
+        guard let addr = externalControllerAddr, !addr.isEmpty else {
+            return nil
+        }
+        return externalControllerURL(controllerAddr: addr, pathSegments: pathSegments, queryItems: queryItems)
+    }
+
+    static func externalControllerURL(
+        controllerAddr addr: String,
+        pathSegments: [String],
+        queryItems: [URLQueryItem] = []
+    ) -> URL? {
+        guard !addr.isEmpty,
+              var components = URLComponents(string: "http://\(addr)") else {
+            return nil
+        }
+        components.percentEncodedPath = "/" + pathSegments
+            .map { $0.addingPercentEncoding(withAllowedCharacters: controllerPathSegmentAllowed) ?? $0 }
+            .joined(separator: "/")
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
+        return components.url
+    }
+
     /// Shared UserDefaults via app group suite.
     static var sharedDefaults: UserDefaults {
         if let group = appGroupIdentifier {
@@ -44,6 +72,12 @@ enum AppConstants {
         }
         return .standard
     }
+
+    private static let controllerPathSegmentAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "%/?#[]@!$&'()*+,;=")
+        return allowed
+    }()
 }
 
 /// Pick a free 127.0.0.1 port by binding a SOCK_STREAM socket to port 0,

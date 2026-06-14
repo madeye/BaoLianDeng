@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import Foundation
+import Yams
 
 // MARK: - Proxy Leaf (non-group proxy from /proxies endpoint)
 
@@ -87,60 +88,30 @@ struct ProxiesResult {
         var proxies: [String: ProxyLeaf] = [:]
         var groups: [String: MihomoProxyGroup] = [:]
 
-        let lines = yamlContent.components(separatedBy: "\n")
-        var inProxies = false
-        var inProxyGroups = false
-        var currentGroup: [String: Any] = [:]
+        guard let dict = (try? Yams.load(yaml: yamlContent)) as? [String: Any] else {
+            return ProxiesResult(groups: [:], proxies: [:])
+        }
 
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            // Section detection
-            if line.hasPrefix("proxies:") {
-                inProxies = true
-                inProxyGroups = false
-                continue
-            }
-            if line.hasPrefix("proxy-groups:") {
-                inProxyGroups = true
-                inProxies = false
-                continue
-            }
-            // Top-level key ends current section
-            if !line.hasPrefix(" ") && !line.isEmpty && line.contains(":") &&
-               !line.hasPrefix("proxies:") && !line.hasPrefix("proxy-groups:") {
-                if inProxyGroups, let group = makeGroup(from: currentGroup) {
-                    groups[group.name] = group
+        if let proxyList = dict["proxies"] as? [[String: Any]] {
+            for proxy in proxyList {
+                guard let name = proxy["name"] as? String, !name.isEmpty else {
+                    continue
                 }
-                inProxies = false
-                inProxyGroups = false
-                currentGroup = [:]
-                continue
-            }
-
-            // Parse proxies section
-            if inProxies {
-                if let name = extractProxyName(from: trimmed) {
-                    // We don't have full type info from simple parsing, use "Unknown"
-                    proxies[name] = ProxyLeaf(name: name, type: "Unknown", latestDelay: nil)
-                }
-            }
-
-            // Parse proxy-groups section
-            if inProxyGroups {
-                if trimmed.hasPrefix("- name:") || trimmed == "-" {
-                    if let group = makeGroup(from: currentGroup) {
-                        groups[group.name] = group
-                    }
-                    currentGroup = [:]
-                }
-                parseGroupLine(trimmed, into: &currentGroup)
+                proxies[name] = ProxyLeaf(
+                    name: name,
+                    type: proxy["type"] as? String ?? "Unknown",
+                    latestDelay: nil
+                )
             }
         }
 
-        // Handle last group
-        if inProxyGroups, let group = makeGroup(from: currentGroup) {
-            groups[group.name] = group
+        if let groupList = dict["proxy-groups"] as? [[String: Any]] {
+            for group in groupList {
+                guard let parsedGroup = makeGroup(from: group) else {
+                    continue
+                }
+                groups[parsedGroup.name] = parsedGroup
+            }
         }
 
         // Add built-in DIRECT/REJECT if not present
@@ -156,81 +127,9 @@ struct ProxiesResult {
 
     // MARK: - YAML Parsing Helpers
 
-    private static func extractProxyName(from line: String) -> String? {
-        // Flow style: - {name: "foo", ...}
-        if line.hasPrefix("- {") && line.contains("name:") {
-            if let nameRange = line.range(of: "name:") {
-                let afterName = line[nameRange.upperBound...]
-                let trimmed = afterName.trimmingCharacters(in: .whitespaces)
-                // Extract value until comma or }
-                var value = ""
-                var inQuote: Character?
-                for ch in trimmed {
-                    if inQuote != nil {
-                        if ch == inQuote { break }
-                        value.append(ch)
-                    } else if ch == "\"" || ch == "'" {
-                        inQuote = ch
-                    } else if ch == "," || ch == "}" {
-                        break
-                    } else {
-                        value.append(ch)
-                    }
-                }
-                let name = value.trimmingCharacters(in: .whitespaces)
-                return name.isEmpty ? nil : name
-            }
-        }
-        // Block style: - name: foo or name: foo
-        if line.hasPrefix("- name:") {
-            return extractValue(from: line, key: "- name:")
-        }
-        if line.hasPrefix("name:") {
-            return extractValue(from: line, key: "name:")
-        }
-        return nil
-    }
-
-    private static func extractValue(from line: String, key: String) -> String? {
-        guard line.hasPrefix(key) else { return nil }
-        var value = String(line.dropFirst(key.count)).trimmingCharacters(in: .whitespaces)
-        // Remove quotes
-        if value.count >= 2 {
-            if (value.hasPrefix("\"") && value.hasSuffix("\"")) ||
-               (value.hasPrefix("'") && value.hasSuffix("'")) {
-                value = String(value.dropFirst().dropLast())
-            }
-        }
-        return value.isEmpty ? nil : value
-    }
-
-    private static func parseGroupLine(_ line: String, into group: inout [String: Any]) {
-        if line.contains("name:") {
-            if let value = extractValue(from: line.replacingOccurrences(of: "- ", with: ""), key: "name:") {
-                group["name"] = value
-            }
-        } else if line.contains("type:") {
-            if let value = extractValue(from: line, key: "type:") {
-                group["type"] = normalizeGroupType(value)
-            }
-        } else if line.trimmingCharacters(in: .whitespaces).hasPrefix("- ") &&
-                  !line.contains(":") {
-            // Proxy member line
-            var members = group["proxies"] as? [String] ?? []
-            let member = line.trimmingCharacters(in: .whitespaces)
-                .dropFirst(2) // Remove "- "
-                .trimmingCharacters(in: .whitespaces)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-            if !member.isEmpty {
-                members.append(String(member))
-                group["proxies"] = members
-            }
-        }
-    }
-
     private static func makeGroup(from dict: [String: Any]) -> MihomoProxyGroup? {
         guard let name = dict["name"] as? String, !name.isEmpty else { return nil }
-        let type = dict["type"] as? String ?? "Selector"
+        let type = normalizeGroupType(dict["type"] as? String ?? "select")
         let all = dict["proxies"] as? [String] ?? []
         let now = all.first ?? ""
         return MihomoProxyGroup(name: name, type: type, now: now, all: all)

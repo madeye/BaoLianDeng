@@ -221,7 +221,7 @@ final class ConfigManager {
             var i = pgIdx + 1
             while i < lines.count {
                 let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
-                if trimmed == "- name: GLOBAL" {
+                if trimmed == "- name: GLOBAL" || trimmed == "- name: \"GLOBAL\"" {
                     // Remove this group entry until the next group or end of section
                     let start = i
                     i += 1
@@ -252,12 +252,12 @@ final class ConfigManager {
         }) else { return lines.joined(separator: "\n") }
 
         var globalGroup = [
-            "  - name: GLOBAL",
+            "  - name: \(Self.yamlQuotedString("GLOBAL"))",
             "    type: select",
             "    proxies:",
         ]
         if let node = selectedNode, !node.isEmpty {
-            globalGroup.append("      - \(node)")
+            globalGroup.append("      - \(Self.yamlQuotedString(node))")
         } else {
             globalGroup.append("      - DIRECT")
         }
@@ -459,6 +459,83 @@ final class ConfigManager {
             }
             return line
         }.joined(separator: "\n")
+    }
+
+    private static func yamlQuotedString(_ s: String) -> String {
+        let escaped = s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        return "\"\(escaped)\""
+    }
+
+    static func rewriteProxyServerHostnames(
+        in yaml: String,
+        hostToIP: [String: String]
+    ) -> String {
+        guard !hostToIP.isEmpty else { return yaml }
+        return yaml.components(separatedBy: "\n")
+            .map { rewriteServerLine($0, hostToIP: hostToIP) }
+            .joined(separator: "\n")
+    }
+
+    private static func rewriteServerLine(_ line: String, hostToIP: [String: String]) -> String {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let rest = line.dropFirst(indent.count)
+        guard rest.hasPrefix("server:") else { return line }
+
+        let afterColon = rest.dropFirst("server:".count)
+        let valueStart = afterColon.prefix { $0 == " " || $0 == "\t" }
+        let valueAndComment = String(afterColon.dropFirst(valueStart.count))
+        guard !valueAndComment.isEmpty else { return line }
+
+        let parsed = parseYAMLScalarWithComment(valueAndComment)
+        guard let replacement = hostToIP[parsed.value] else { return line }
+
+        let quotedReplacement: String
+        switch parsed.quote {
+        case "\"":
+            quotedReplacement = yamlQuotedString(replacement)
+        case "'":
+            quotedReplacement = "'\(replacement.replacingOccurrences(of: "'", with: "''"))'"
+        default:
+            quotedReplacement = replacement
+        }
+        return "\(indent)server:\(valueStart)\(quotedReplacement)\(parsed.comment)"
+    }
+
+    private static func parseYAMLScalarWithComment(_ s: String) -> (value: String, quote: Character?, comment: String) {
+        guard let first = s.first else { return ("", nil, "") }
+        if first == "\"" || first == "'" {
+            var escaped = false
+            var value = ""
+            var index = s.index(after: s.startIndex)
+            while index < s.endIndex {
+                let character = s[index]
+                if first == "\"" && escaped {
+                    value.append(character)
+                    escaped = false
+                } else if first == "\"" && character == "\\" {
+                    escaped = true
+                } else if character == first {
+                    let comment = String(s[s.index(after: index)...])
+                    return (value, first, comment)
+                } else {
+                    value.append(character)
+                }
+                index = s.index(after: index)
+            }
+            return (value, first, "")
+        }
+
+        if let commentRange = s.range(of: #"(\s+#.*)$"#, options: .regularExpression) {
+            let value = String(s[..<commentRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (value, nil, String(s[commentRange.lowerBound...]))
+        }
+        return (s.trimmingCharacters(in: .whitespacesAndNewlines), nil, "")
     }
 
     /// Extract top-level YAML sections by name.
@@ -726,10 +803,10 @@ extension ConfigManager {
         if groups.isEmpty { return ["proxy-groups: []"] }
         var result = ["proxy-groups:"]
         for group in groups {
-            result.append("  - name: \(group.name)")
+            result.append("  - name: \(Self.yamlQuotedString(group.name))")
             result.append("    type: \(group.type)")
             if let url = group.url, !url.isEmpty {
-                result.append("    url: \(url)")
+                result.append("    url: \(Self.yamlQuotedString(url))")
             }
             if let interval = group.interval {
                 result.append("    interval: \(interval)")
@@ -739,7 +816,7 @@ extension ConfigManager {
             } else {
                 result.append("    proxies:")
                 for proxy in group.proxies {
-                    result.append("      - \(proxy)")
+                    result.append("      - \(Self.yamlQuotedString(proxy))")
                 }
             }
         }
@@ -750,13 +827,15 @@ extension ConfigManager {
         if rules.isEmpty { return ["rules: []"] }
         var result = ["rules:"]
         for rule in rules {
+            let ruleLine: String
             if rule.type == "MATCH" {
-                result.append("  - MATCH,\(rule.target)")
+                ruleLine = "MATCH,\(rule.target)"
             } else {
-                var line = "  - \(rule.type),\(rule.value),\(rule.target)"
+                var line = "\(rule.type),\(rule.value),\(rule.target)"
                 if rule.noResolve { line += ",no-resolve" }
-                result.append(line)
+                ruleLine = line
             }
+            result.append("  - \(Self.yamlQuotedString(ruleLine))")
         }
         return result
     }
