@@ -32,6 +32,7 @@ var (
 	logSubOnce sync.Once
 
 	versionCStr *C.char // cached, never freed
+	versionOnce sync.Once
 
 	// Ports/addr actually bound by mihomo this run. Reset on stop.
 	// Picked dynamically (port 0) to avoid colliding with other mihomo
@@ -292,9 +293,9 @@ func bridge_update_log_level(level *C.char) {
 
 //export bridge_version
 func bridge_version() *C.char {
-	if versionCStr == nil {
+	versionOnce.Do(func() {
 		versionCStr = C.CString("mihomo-go " + constant.Version)
-	}
+	})
 	return versionCStr
 }
 

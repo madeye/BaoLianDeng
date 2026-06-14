@@ -48,7 +48,14 @@ func bridge_test_proxy_http(target *C.char) *C.char {
 	}
 	t := C.GoString(target)
 
-	dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:7890", nil, &net.Dialer{Timeout: diagConnectTimeout})
+	stateMu.Lock()
+	socksPort := runtimeSocksPort
+	stateMu.Unlock()
+	if socksPort == 0 {
+		return C.CString("FAIL: proxy not running (socks port unset)")
+	}
+
+	dialer, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), nil, &net.Dialer{Timeout: diagConnectTimeout})
 	if err != nil {
 		return C.CString(fmt.Sprintf("FAIL: socks5 dialer: %v", err))
 	}

@@ -1,7 +1,7 @@
 #import "MihomoCore.h"
 #include <stdbool.h>
 
-// C FFI declarations (from Rust staticlib)
+// C FFI declarations (from the Go c-archive)
 extern void bridge_set_home_dir(const char *dir);
 extern int32_t bridge_set_log_file(const char *path);
 extern int32_t bridge_start_with_ports(int32_t socks_port, int32_t dns_port, const char *controller_addr, const char *secret);
@@ -10,7 +10,6 @@ extern int32_t bridge_get_dns_port(void);
 extern char *bridge_get_external_controller_addr(void);
 extern void bridge_stop_proxy(void);
 extern bool bridge_is_running(void);
-extern char *bridge_read_config(void);
 extern int32_t bridge_validate_config(const char *yaml);
 extern void bridge_update_log_level(const char *level);
 extern int64_t bridge_get_upload_traffic(void);
