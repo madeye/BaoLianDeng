@@ -44,6 +44,13 @@ struct SOCKS5ConnectRequestTests {
         #expect(Array(request.prefix(4)) == [0x05, 0x01, 0x00, 0x04])
         #expect(request.count == 22)
         #expect(Array(request.suffix(2)) == [0x03, 0x55])
+        // The 16 ATYP payload bytes must be the network-order address itself,
+        // not the layout of the `Data` struct wrapping it.
+        let addressBytes = Array(request[4..<20])
+        #expect(addressBytes == [
+            0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        ])
     }
 
     @Test("Encodes domain destinations")

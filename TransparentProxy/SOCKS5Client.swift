@@ -175,7 +175,12 @@ enum SOCKS5Client {
             request.append(contentsOf: parts)
         } else if let ipv6 = IPv6Address(destHost) {
             request.append(0x04)
-            withUnsafeBytes(of: ipv6.rawValue) { request.append(contentsOf: $0) }
+            // `rawValue` is already the 16-byte network-order address. Using
+            // `withUnsafeBytes(of: ipv6.rawValue)` would instead reflect the
+            // `Data` struct's own memory layout (a pointer-sized header that
+            // merely happens to be 16 bytes on 64-bit), shipping a garbage
+            // destination that looks structurally valid.
+            request.append(ipv6.rawValue)
         } else {
             let domainBytes = Array(destHost.utf8)
             guard !domainBytes.isEmpty, domainBytes.count <= 255 else {
