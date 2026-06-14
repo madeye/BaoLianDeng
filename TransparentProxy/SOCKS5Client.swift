@@ -22,6 +22,7 @@ enum SOCKS5Error: LocalizedError {
     case unexpectedEOF
     case socks5AuthFailed
     case socks5ConnectFailed
+    case invalidDestinationHost
 
     var errorDescription: String? {
         switch self {
@@ -29,6 +30,7 @@ enum SOCKS5Error: LocalizedError {
         case .unexpectedEOF:       return "Unexpected end of data"
         case .socks5AuthFailed:    return "SOCKS5 authentication failed"
         case .socks5ConnectFailed: return "SOCKS5 CONNECT failed"
+        case .invalidDestinationHost: return "Invalid SOCKS5 destination host"
         }
     }
 }
@@ -134,28 +136,10 @@ enum SOCKS5Client {
             throw SOCKS5Error.socks5AuthFailed
         }
 
-        // Step 2: CONNECT request
-        var request = Data([0x05, 0x01, 0x00])
-
-        if IPv4Address(destHost) != nil {
-            request.append(0x01)
-            let parts = destHost.split(separator: ".").compactMap { UInt8($0) }
-            request.append(contentsOf: parts)
-        } else if let ipv6 = IPv6Address(destHost) {
-            request.append(0x04)
-            withUnsafeBytes(of: ipv6.rawValue) { request.append(contentsOf: $0) }
-        } else {
-            request.append(0x03)
-            let domainBytes = Array(destHost.utf8)
-            request.append(UInt8(domainBytes.count))
-            request.append(contentsOf: domainBytes)
-        }
-
-        // Port (big-endian)
-        request.append(UInt8(destPort >> 8))
-        request.append(UInt8(destPort & 0xFF))
-
-        try await sendAll(connection: connection, data: request)
+        try await sendAll(
+            connection: connection,
+            data: try makeConnectRequest(destHost: destHost, destPort: destPort)
+        )
 
         // Read response: version, status, rsv, atyp
         let connResp = try await readExact(connection: connection, count: 4)
@@ -177,5 +161,33 @@ enum SOCKS5Client {
         default:
             break
         }
+    }
+
+    static func makeConnectRequest(destHost: String, destPort: UInt16) throws -> Data {
+        var request = Data([0x05, 0x01, 0x00])
+
+        if IPv4Address(destHost) != nil {
+            request.append(0x01)
+            let parts = destHost.split(separator: ".").compactMap { UInt8($0) }
+            guard parts.count == 4 else {
+                throw SOCKS5Error.invalidDestinationHost
+            }
+            request.append(contentsOf: parts)
+        } else if let ipv6 = IPv6Address(destHost) {
+            request.append(0x04)
+            withUnsafeBytes(of: ipv6.rawValue) { request.append(contentsOf: $0) }
+        } else {
+            let domainBytes = Array(destHost.utf8)
+            guard !domainBytes.isEmpty, domainBytes.count <= 255 else {
+                throw SOCKS5Error.invalidDestinationHost
+            }
+            request.append(0x03)
+            request.append(UInt8(domainBytes.count))
+            request.append(contentsOf: domainBytes)
+        }
+
+        request.append(UInt8(destPort >> 8))
+        request.append(UInt8(destPort & 0xFF))
+        return request
     }
 }

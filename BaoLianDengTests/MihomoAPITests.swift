@@ -17,6 +17,64 @@ import Foundation
 import Testing
 @testable import BaoLianDeng
 
+@Suite("SOCKS5 CONNECT request")
+struct SOCKS5ConnectRequestTests {
+
+    @Test("Encodes IPv4 destinations")
+    func encodesIPv4Destination() throws {
+        let request = try SOCKS5Client.makeConnectRequest(
+            destHost: "1.2.3.4",
+            destPort: 443
+        )
+
+        #expect(Array(request) == [
+            0x05, 0x01, 0x00, 0x01,
+            0x01, 0x02, 0x03, 0x04,
+            0x01, 0xbb
+        ])
+    }
+
+    @Test("Encodes IPv6 destinations")
+    func encodesIPv6Destination() throws {
+        let request = try SOCKS5Client.makeConnectRequest(
+            destHost: "2001:db8::1",
+            destPort: 853
+        )
+
+        #expect(Array(request.prefix(4)) == [0x05, 0x01, 0x00, 0x04])
+        #expect(request.count == 22)
+        #expect(Array(request.suffix(2)) == [0x03, 0x55])
+    }
+
+    @Test("Encodes domain destinations")
+    func encodesDomainDestination() throws {
+        let request = try SOCKS5Client.makeConnectRequest(
+            destHost: "example.com",
+            destPort: 80
+        )
+
+        #expect(Array(request.prefix(5)) == [0x05, 0x01, 0x00, 0x03, 11])
+        #expect(String(data: request[5..<16], encoding: .utf8) == "example.com")
+        #expect(Array(request.suffix(2)) == [0x00, 0x50])
+    }
+
+    @Test("Rejects empty domain destinations")
+    func rejectsEmptyDomainDestination() throws {
+        #expect(throws: SOCKS5Error.invalidDestinationHost) {
+            try SOCKS5Client.makeConnectRequest(destHost: "", destPort: 80)
+        }
+    }
+
+    @Test("Rejects domains longer than SOCKS5 allows")
+    func rejectsOverlongDomainDestination() throws {
+        let host = String(repeating: "a", count: 256)
+
+        #expect(throws: SOCKS5Error.invalidDestinationHost) {
+            try SOCKS5Client.makeConnectRequest(destHost: host, destPort: 80)
+        }
+    }
+}
+
 // MARK: - Response Model Tests
 
 @Suite("MihomoRule")
