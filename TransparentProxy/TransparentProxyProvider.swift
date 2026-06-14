@@ -456,12 +456,12 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             // Flow → SOCKS5
             group.addTask {
                 while true {
-                    let data: Data? = await withCheckedContinuation { cont in
+                    let data: Data? = await withOneShotFlowContinuation { resume in
                         flow.readData(completionHandler: { data, error in
                             if error != nil || data == nil || data!.isEmpty {
-                                cont.resume(returning: nil)
+                                resume(nil)
                             } else {
-                                cont.resume(returning: data)
+                                resume(data)
                             }
                         })
                     }
@@ -484,9 +484,9 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                     do {
                         let data = try await SOCKS5Client.readSome(connection: connection)
                         guard !data.isEmpty else { break }
-                        let writeOK: Bool = await withCheckedContinuation { cont in
+                        let writeOK: Bool = await withOneShotFlowContinuation { resume in
                             flow.write(data) { error in
-                                cont.resume(returning: error == nil)
+                                resume(error == nil)
                             }
                         }
                         if !writeOK { break }
@@ -865,6 +865,38 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 extension Collection {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+// MARK: - Flow continuation helper
+
+/// Bridge a flow completion-handler callback to async, resuming the
+/// continuation exactly once even if the handler fires more than once during
+/// teardown races.
+///
+/// `NEAppProxyTCPFlow.readData`/`write` belong to the same flow family as
+/// `NEAppProxyFlow.open` (see `TransparentProxyProvider.openFlow`), whose
+/// completion handler can fire multiple times during teardown. A bare
+/// `withCheckedContinuation` would then call `cont.resume` twice and trap with
+/// "SWIFT TASK CONTINUATION MISUSE" (EXC_BREAKPOINT), killing the extension.
+/// The `resumed` flag (guarded by a lock, since the handler may fire on
+/// different threads) makes resumption happen exactly once.
+private func withOneShotFlowContinuation<T>(
+    _ body: (@escaping (T) -> Void) -> Void
+) async -> T {
+    await withCheckedContinuation { (cont: CheckedContinuation<T, Never>) in
+        let lock = NSLock()
+        var resumed = false
+        body { value in
+            lock.lock()
+            if resumed {
+                lock.unlock()
+                return
+            }
+            resumed = true
+            lock.unlock()
+            cont.resume(returning: value)
+        }
     }
 }
 
