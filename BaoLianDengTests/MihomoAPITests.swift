@@ -841,3 +841,62 @@ struct ProxyModeTests {
         #expect(ProxyMode(rawValue: "invalid") == nil)
     }
 }
+
+// MARK: - TrafficStore Counter Accounting
+
+@MainActor
+@Suite("TrafficStore counter accounting", .serialized)
+struct TrafficStoreCounterAccountingTests {
+
+    private func today() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.string(from: Date())
+    }
+
+    @Test("Counter reset preserves already persisted daily traffic")
+    func counterResetPreservesDailyTraffic() {
+        let store = TrafficStore.shared
+        let date = today()
+        store.resetTrafficStateForTesting(
+            dailyRecords: [
+                DailyTraffic(date: date, proxyUpload: 2_100, proxyDownload: 4_050)
+            ],
+            sessionUpload: 2_000,
+            sessionDownload: 4_000,
+            todayBaseUpload: 100,
+            todayBaseDownload: 50,
+            lastAttributedUpload: 2_000,
+            lastAttributedDownload: 4_000
+        )
+        defer { store.resetTrafficStateForTesting() }
+
+        store.processConnectionsForTesting(uploadTotal: 100, downloadTotal: 200)
+
+        let record = store.dailyRecords.first { $0.date == date }
+        #expect(record?.proxyUpload == 2_200)
+        #expect(record?.proxyDownload == 4_250)
+    }
+
+    @Test("Initial already-running counter sample does not overwrite persisted day")
+    func initialSampleKeepsPersistedDay() {
+        let store = TrafficStore.shared
+        let date = today()
+        store.resetTrafficStateForTesting(
+            dailyRecords: [
+                DailyTraffic(date: date, proxyUpload: 3_000, proxyDownload: 7_000)
+            ]
+        )
+        defer { store.resetTrafficStateForTesting() }
+
+        store.preparePollingForTesting()
+        store.processConnectionsForTesting(uploadTotal: 2_000, downloadTotal: 4_000)
+
+        let record = store.dailyRecords.first { $0.date == date }
+        #expect(record?.proxyUpload == 3_000)
+        #expect(record?.proxyDownload == 7_000)
+        #expect(store.sessionProxyUpload == 2_000)
+        #expect(store.sessionProxyDownload == 4_000)
+    }
+}

@@ -59,6 +59,10 @@ final class TrafficStore: ObservableObject {
     private var lastAttributedDownload: Int64 = 0
     private var todayBaseUpload: Int64 = 0
     private var todayBaseDownload: Int64 = 0
+    private var dayCounterBaselineUpload: Int64 = 0
+    private var dayCounterBaselineDownload: Int64 = 0
+    private var awaitingInitialCounterSample = false
+    private var didResetForCurrentStart = false
     private var currentDate: String = ""
     private var timer: Timer?
     private let defaults = AppConstants.sharedDefaults
@@ -86,7 +90,7 @@ final class TrafficStore: ObservableObject {
 
     func startPolling() {
         stopPolling()
-        currentDate = Self.dateFormatter.string(from: Date())
+        prepareForPollingStart()
         refreshSubscriptionCache()
         refreshGroupMembers()
         fetchConnections()
@@ -137,12 +141,37 @@ final class TrafficStore: ObservableObject {
         activeTotalCount = 0
         lastAttributedUpload = 0
         lastAttributedDownload = 0
+        dayCounterBaselineUpload = 0
+        dayCounterBaselineDownload = 0
+        awaitingInitialCounterSample = false
+        didResetForCurrentStart = true
 
         loadRecords()
         currentDate = Self.dateFormatter.string(from: Date())
         if let todayRecord = dailyRecords.first(where: { $0.date == currentDate }) {
             todayBaseUpload = todayRecord.proxyUpload
             todayBaseDownload = todayRecord.proxyDownload
+        } else {
+            todayBaseUpload = 0
+            todayBaseDownload = 0
+        }
+    }
+
+    private func prepareForPollingStart() {
+        currentDate = Self.dateFormatter.string(from: Date())
+        syncTodayBaseFromRecords()
+        awaitingInitialCounterSample =
+            !didResetForCurrentStart && sessionProxyUpload == 0 && sessionProxyDownload == 0
+        didResetForCurrentStart = false
+    }
+
+    private func syncTodayBaseFromRecords() {
+        let countedUpload = max(0, sessionProxyUpload - dayCounterBaselineUpload)
+        let countedDownload = max(0, sessionProxyDownload - dayCounterBaselineDownload)
+
+        if let todayRecord = dailyRecords.first(where: { $0.date == currentDate }) {
+            todayBaseUpload = max(0, todayRecord.proxyUpload - countedUpload)
+            todayBaseDownload = max(0, todayRecord.proxyDownload - countedDownload)
         } else {
             todayBaseUpload = 0
             todayBaseDownload = 0
@@ -182,6 +211,8 @@ final class TrafficStore: ObservableObject {
             currentDate = today
             todayBaseUpload = 0
             todayBaseDownload = 0
+            dayCounterBaselineUpload = sessionProxyUpload
+            dayCounterBaselineDownload = sessionProxyDownload
         }
 
         // Refresh the group map at most every 30s so mid-session config
@@ -196,9 +227,19 @@ final class TrafficStore: ObservableObject {
             if !isDirect(chains: chains) { proxyCount += 1 }
         }
 
-        // Use tunnel-level totals for session traffic.
-        // The tunnel counts all traffic through the proxy engine; since tun2socks
-        // routes everything via SOCKS5, this is effectively all proxy traffic.
+        if awaitingInitialCounterSample {
+            dayCounterBaselineUpload = uploadTotal
+            dayCounterBaselineDownload = downloadTotal
+            lastAttributedUpload = uploadTotal
+            lastAttributedDownload = downloadTotal
+            awaitingInitialCounterSample = false
+        }
+
+        reconcileCounterResets(uploadTotal: uploadTotal, downloadTotal: downloadTotal)
+
+        // Use tunnel-level totals for session traffic. The tunnel counts all
+        // traffic through the proxy engine; since tun2socks routes everything
+        // via SOCKS5, this is effectively all proxy traffic.
         sessionProxyUpload = uploadTotal
         sessionProxyDownload = downloadTotal
         activeProxyCount = proxyCount
@@ -215,6 +256,19 @@ final class TrafficStore: ObservableObject {
         lastAttributedDownload = sessionProxyDownload
 
         persistToday()
+    }
+
+    private func reconcileCounterResets(uploadTotal: Int64, downloadTotal: Int64) {
+        if uploadTotal < sessionProxyUpload {
+            todayBaseUpload += max(0, sessionProxyUpload - dayCounterBaselineUpload)
+            dayCounterBaselineUpload = 0
+            lastAttributedUpload = 0
+        }
+        if downloadTotal < sessionProxyDownload {
+            todayBaseDownload += max(0, sessionProxyDownload - dayCounterBaselineDownload)
+            dayCounterBaselineDownload = 0
+            lastAttributedDownload = 0
+        }
     }
 
     private func isDirect(chains: [String]) -> Bool {
@@ -236,8 +290,8 @@ final class TrafficStore: ObservableObject {
     }
 
     private func persistToday() {
-        let todayUp = todayBaseUpload + sessionProxyUpload
-        let todayDown = todayBaseDownload + sessionProxyDownload
+        let todayUp = todayBaseUpload + max(0, sessionProxyUpload - dayCounterBaselineUpload)
+        let todayDown = todayBaseDownload + max(0, sessionProxyDownload - dayCounterBaselineDownload)
 
         if let idx = dailyRecords.firstIndex(where: { $0.date == currentDate }) {
             dailyRecords[idx].proxyUpload = todayUp
@@ -322,4 +376,48 @@ final class TrafficStore: ObservableObject {
         defaults.removeObject(forKey: AppConstants.subscriptionUsageKey)
         refreshSubscriptionCache()
     }
+
+    #if DEBUG
+    func preparePollingForTesting() {
+        prepareForPollingStart()
+    }
+
+    func resetTrafficStateForTesting(
+        dailyRecords: [DailyTraffic] = [],
+        subscriptionUsages: [SubscriptionUsage] = [],
+        sessionUpload: Int64 = 0,
+        sessionDownload: Int64 = 0,
+        todayBaseUpload: Int64 = 0,
+        todayBaseDownload: Int64 = 0,
+        dayCounterBaselineUpload: Int64 = 0,
+        dayCounterBaselineDownload: Int64 = 0,
+        lastAttributedUpload: Int64 = 0,
+        lastAttributedDownload: Int64 = 0,
+        didResetForCurrentStart: Bool = false
+    ) {
+        stopPolling()
+        self.dailyRecords = dailyRecords
+        self.subscriptionUsages = subscriptionUsages
+        sessionProxyUpload = sessionUpload
+        sessionProxyDownload = sessionDownload
+        activeProxyCount = 0
+        activeTotalCount = 0
+        self.todayBaseUpload = todayBaseUpload
+        self.todayBaseDownload = todayBaseDownload
+        self.dayCounterBaselineUpload = dayCounterBaselineUpload
+        self.dayCounterBaselineDownload = dayCounterBaselineDownload
+        self.lastAttributedUpload = lastAttributedUpload
+        self.lastAttributedDownload = lastAttributedDownload
+        awaitingInitialCounterSample = false
+        self.didResetForCurrentStart = didResetForCurrentStart
+        currentDate = Self.dateFormatter.string(from: Date())
+        defaults.removeObject(forKey: AppConstants.dailyTrafficKey)
+        defaults.removeObject(forKey: AppConstants.subscriptionUsageKey)
+        defaults.removeObject(forKey: "selectedSubscriptionID")
+    }
+
+    func processConnectionsForTesting(uploadTotal: Int64, downloadTotal: Int64) {
+        processConnections([], uploadTotal: uploadTotal, downloadTotal: downloadTotal)
+    }
+    #endif
 }
