@@ -2,7 +2,7 @@
 
 macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Clash Meta) core.
 
-**[Download PKG](https://github.com/madeye/BaoLianDeng/releases/latest)** · **[TestFlight Beta](https://testflight.apple.com/join/VpX3tHnS)** · **[Website](https://madeye.github.io/BaoLianDeng/)**
+**[App Store](https://apps.apple.com/app/baoliandeng/id6779101876)** · **[TestFlight Beta](https://testflight.apple.com/join/VpX3tHnS)** · **[Website](https://madeye.github.io/BaoLianDeng/)**
 
 ## Features
 
@@ -44,14 +44,11 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 
 ## Install
 
-### From PKG
+### From the App Store
 
-1. Download the latest PKG from [Releases](https://github.com/madeye/BaoLianDeng/releases/latest)
-2. Open the PKG installer and follow the prompts (installs to **/Applications**)
-3. Launch **BaoLianDeng** from Applications
-4. Enable the network extension: **System Settings → General → Login Items & Extensions → Network Extensions** → toggle on **BaoLianDeng**
-
-The PKG is signed with Developer ID and notarized by Apple.
+1. Download from the [Mac App Store](https://apps.apple.com/app/baoliandeng/id6779101876)
+2. Launch **BaoLianDeng** from Applications
+3. Enable the network extension: **System Settings → General → Login Items & Extensions → Network Extensions** → toggle on **BaoLianDeng**
 
 ### Build from Source
 
