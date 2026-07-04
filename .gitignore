@@ -12,14 +12,11 @@ xcuserdata/
 *.xccheckout
 *.moved-aside
 
-# Go
-Go/mihomo-bridge/vendor/
-
 # Framework (built from Rust source)
 Framework/MihomoCore.xcframework/
 
 # Rust build artifacts
-Rust/mihomo-ffi/target/
+Rust/meow-ffi/target/
 
 # Release artifacts
 *.dmg

@@ -331,10 +331,10 @@ struct HomeView: View {
             .set(sub.id.uuidString, forKey: "selectedSubscriptionID")
         if let raw = sub.rawContent {
             Task {
-                let merged = await Task.detached {
-                    (try? ConfigManager.shared.applySubscriptionConfig(raw)) ?? ""
+                _ = await Task.detached {
+                    try? ConfigManager.shared.applySubscriptionConfig(raw)
                 }.value
-                await Self.reloadMihomoConfig(with: merged)
+                await Self.applyConfigByRestartingTunnel()
                 loadProxyGroups()
             }
         } else {
@@ -394,16 +394,14 @@ struct HomeView: View {
         }
     }
 
-    static func reloadMihomoConfig(with yaml: String) async {
-        guard let url = AppConstants.externalControllerURL(
-            pathSegments: ["configs"],
-            queryItems: [URLQueryItem(name: "force", value: "true")]
-        ) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["payload": yaml])
-        _ = try? await URLSession.shared.data(for: request)
+    /// Apply the on-disk config to the running engine by restarting the
+    /// tunnel. The engine loads its config only at tunnel start (that's when
+    /// the ephemeral SOCKS/DNS/controller ports are injected); the REST
+    /// `PUT /configs` cold reload would re-bind listeners from the YAML's
+    /// placeholder ports and kill the tunnel.
+    @MainActor
+    static func applyConfigByRestartingTunnel() {
+        VPNManager.shared.restartIfConnected()
     }
 
     private func fetchNewSubscriptions() {
@@ -534,8 +532,8 @@ struct HomeView: View {
                 }
                 saveSubscriptions()
                 if id == selectedSubscriptionID {
-                    let merged = (try? ConfigManager.shared.applySubscriptionConfig(result.raw)) ?? ""
-                    await Self.reloadMihomoConfig(with: merged)
+                    _ = try? ConfigManager.shared.applySubscriptionConfig(result.raw)
+                    await Self.applyConfigByRestartingTunnel()
                 }
                 displayToast(String(format: String(localized: "Updated %@ (%lld nodes)"), name, result.nodes.count))
             } catch {
@@ -586,8 +584,8 @@ struct HomeView: View {
         if let selID = selectedSubscriptionID,
            let sub = subscriptions.first(where: { $0.id == selID }),
            let raw = sub.rawContent {
-            let merged = (try? ConfigManager.shared.applySubscriptionConfig(raw)) ?? ""
-            await Self.reloadMihomoConfig(with: merged)
+            _ = try? ConfigManager.shared.applySubscriptionConfig(raw)
+            await Self.applyConfigByRestartingTunnel()
         }
         isReloading = false
         reloadResult = ReloadResult(succeeded: succeeded, failed: failed)

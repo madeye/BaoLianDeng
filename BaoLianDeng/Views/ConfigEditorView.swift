@@ -265,16 +265,11 @@ struct ConfigEditorView: View {
     }
 
     private func reloadConfig() async {
-        isReloading = true
-        do {
-            try await MihomoAPI.reloadConfig()
-        } catch {
-            await MainActor.run {
-                errorMessage = "Reload failed: \(error.localizedDescription)"
-                showError = true
-            }
-        }
+        // Restart the tunnel to apply the saved config — the engine reads
+        // config.yaml (and gets its runtime ports) only at tunnel start.
         await MainActor.run {
+            isReloading = true
+            vpnManager.restartIfConnected()
             isReloading = false
         }
     }

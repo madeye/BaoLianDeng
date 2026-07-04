@@ -23,8 +23,11 @@ final class ConfigManager {
 
     private let fileManager = FileManager.default
 
+    // GEOIP needs GeoLite2-Country schema (country.mmdb) — the meow-rs engine
+    // reads country/iso_code records; mihomo's geoip.metadb (Meta-geoip0
+    // schema) opens fine but matches nothing.
     static let geodataFiles: [(name: String, ext: String, url: String)] = [
-        ("geoip", "metadb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"),
+        ("Country", "mmdb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"),
         ("geosite", "dat", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"),
     ]
 
@@ -50,7 +53,7 @@ final class ConfigManager {
         }
     }
 
-    /// Ensure geodata files (geoip.metadb, geosite.dat) exist in the given directory.
+    /// Ensure geodata files (Country.mmdb, geosite.dat) exist in the given directory.
     /// Tries the app bundle first, then downloads from jsDelivr.
     func ensureGeodataFiles(configDir: String) {
         for file in Self.geodataFiles {
@@ -409,7 +412,7 @@ final class ConfigManager {
 
     /// Merge a Clash subscription YAML into our base config.
     /// Keeps our DNS/port settings and local rules; takes only proxies and proxy-groups from the subscription.
-    /// Returns the merged YAML so callers can push it via REST API without re-reading the file.
+    /// Returns the merged YAML so callers can inspect it without re-reading the file.
     @discardableResult
     func applySubscriptionConfig(_ subscriptionYAML: String) throws -> String {
         let merged = mergeSubscription(subscriptionYAML)
@@ -453,8 +456,8 @@ final class ConfigManager {
         let merged = mergeSubscription(yaml)
         AppLogger.config.notice("merged config length: \(merged.count), preview: \(String(merged.prefix(300)), privacy: .public)")
 
-        // Mihomo's config.Parse needs HomeDir set so it can find geodata files
-        // (geoip.metadb, geosite.dat) when validating GEOIP/GEOSITE rules.
+        // The engine needs HomeDir set so it can find geodata files
+        // (Country.mmdb, geosite.dat) when validating GEOIP/GEOSITE rules.
         if let dir = configDirectoryURL?.path {
             ensureGeodataFiles(configDir: dir)
             BridgeSetHomeDir(dir)

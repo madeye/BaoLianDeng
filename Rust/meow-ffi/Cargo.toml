@@ -1,0 +1,53 @@
+[package]
+name = "meow-ffi"
+version = "0.16.0"
+edition = "2021"
+rust-version = "1.89"
+license = "GPL-3.0"
+description = "C FFI bridge embedding the meow-rs proxy kernel for BaoLianDeng."
+publish = false
+
+[lib]
+name = "meow_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+# meow-rs kernel crates, pinned to a single git rev (== local checkout HEAD).
+# Protocol features mirror meow-app's `full` set MINUS `ech-tls-tunnel`, which
+# would pull rustls/aws_lc_rs (aws-lc-sys) in via meow-transport's `ech`
+# feature. `boring-tls` is likewise left off (BoringSSL needs cmake/C++ per
+# arch, breaking the universal-lipo build). Trade-off: no ech-tls-tunnel
+# outbound and no Reality/uTLS fingerprinting — accepted for now.
+meow-common = { git = "https://github.com/madeye/meow-rs.git", rev = "453ba6738465dff272578e38f53a1e9b3d6d1b24" }
+meow-config = { git = "https://github.com/madeye/meow-rs.git", rev = "453ba6738465dff272578e38f53a1e9b3d6d1b24", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vmess", "snell", "hysteria2"] }
+meow-dns = { git = "https://github.com/madeye/meow-rs.git", rev = "453ba6738465dff272578e38f53a1e9b3d6d1b24" }
+meow-tunnel = { git = "https://github.com/madeye/meow-rs.git", rev = "453ba6738465dff272578e38f53a1e9b3d6d1b24" }
+meow-listener = { git = "https://github.com/madeye/meow-rs.git", rev = "453ba6738465dff272578e38f53a1e9b3d6d1b24", default-features = false, features = ["listener-mixed"] }
+meow-api = { git = "https://github.com/madeye/meow-rs.git", rev = "453ba6738465dff272578e38f53a1e9b3d6d1b24" }
+# meow-app is pulled in ONLY for its `health_check` lib helpers (url-test /
+# fallback group probing). default-features = false drops its `full` +
+# `boring-tls` bundle so no ech/aws-lc/BoringSSL leaks in; protocol features
+# come from meow-config above and unify onto the shared crate instances.
+meow-app = { git = "https://github.com/madeye/meow-rs.git", rev = "453ba6738465dff272578e38f53a1e9b3d6d1b24", default-features = false }
+
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
+parking_lot = "0.12"
+dashmap = "6"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry"] }
+# ring-backed rustls only; never aws_lc_rs (would pull aws-lc-sys / cmake).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# Diagnostics HTTP client: SOCKS5 + rustls(ring); no default (native-tls/openssl).
+reqwest = { version = "0.12", default-features = false, features = ["socks", "json", "rustls-tls"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+# panic = "unwind" (NOT abort): every exported fn wraps its body in
+# std::panic::catch_unwind so a Rust panic never unwinds across the C ABI.
+# abort would make catch_unwind useless and kill the process on any panic.
+panic = "unwind"

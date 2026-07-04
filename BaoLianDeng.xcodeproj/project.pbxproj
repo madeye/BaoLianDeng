@@ -71,7 +71,7 @@
 		T10041 /* ProxyEngineIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10040 /* ProxyEngineIntegrationTests.swift */; };
 		T10045 /* TestConfigs.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10044 /* TestConfigs.swift */; };
 		T10047 /* ProxyEngineHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10046 /* ProxyEngineHelper.swift */; };
-		GEO002 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
+		GEO002 /* Country.mmdb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* Country.mmdb */; };
 		GEO004 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
 		AX10020 /* TransparentProxyProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TransparentProxyProvider.swift */; };
 		AX10021 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
@@ -84,7 +84,7 @@
 		AX10031 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040 /* NetworkExtension.framework */; };
 		AX10032 /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
 		AX10033 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = AX10040 /* Yams */; };
-		AX10034 /* geoip.metadb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* geoip.metadb */; };
+		AX10034 /* Country.mmdb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* Country.mmdb */; };
 		AX10035 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
 		AX10051 /* TransparentProxy.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AX10010 /* TransparentProxy.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -197,7 +197,7 @@
 		T10040 /* ProxyEngineIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineIntegrationTests.swift; sourceTree = "<group>"; };
 		T10044 /* TestConfigs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestConfigs.swift; sourceTree = "<group>"; };
 		T10046 /* ProxyEngineHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineHelper.swift; sourceTree = "<group>"; };
-		GEO001 /* geoip.metadb */ = {isa = PBXFileReference; lastKnownFileType = file; path = geoip.metadb; sourceTree = "<group>"; };
+		GEO001 /* Country.mmdb */ = {isa = PBXFileReference; lastKnownFileType = file; path = Country.mmdb; sourceTree = "<group>"; };
 		GEO003 /* geosite.dat */ = {isa = PBXFileReference; lastKnownFileType = file; path = geosite.dat; sourceTree = "<group>"; };
 		AX10010 /* TransparentProxy.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TransparentProxy.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AX10080 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -263,7 +263,7 @@
 			children = (
 				720E19EEF39E6C95A95649DA /* TransparentProxyMac.entitlements */,
 				809DB4CA51000087EE0949AF /* Info.plist */,
-				GEO001 /* geoip.metadb */,
+				GEO001 /* Country.mmdb */,
 				GEO003 /* geosite.dat */,
 			);
 			path = TransparentProxyMac;
@@ -561,7 +561,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				GEO002 /* geoip.metadb in Resources */,
+				GEO002 /* Country.mmdb in Resources */,
 				GEO004 /* geosite.dat in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -570,7 +570,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AX10034 /* geoip.metadb in Resources */,
+				AX10034 /* Country.mmdb in Resources */,
 				AX10035 /* geosite.dat in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

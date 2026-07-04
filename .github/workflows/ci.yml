@@ -27,18 +27,22 @@ concurrency:
 
 jobs:
   build-framework:
-    name: Build Go Framework
+    name: Build Rust Framework
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          go-version: '1.25'
-          cache-dependency-path: Go/mihomo-bridge/go.sum
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Rust/meow-ffi
 
       - name: Build MihomoCore.xcframework (macOS)
         run: make framework-macos
