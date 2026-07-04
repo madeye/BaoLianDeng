@@ -17,7 +17,7 @@ RUST_FFI_DIR = Rust/meow-ffi
 FFI_OBJC = $(RUST_FFI_DIR)/objc
 FRAMEWORK_DIR = Framework
 FRAMEWORK_NAME = MihomoCore
-BUILD_DIR = /tmp/mihomo-ffi-build
+BUILD_DIR = /tmp/meow-ffi-build
 
 CARGO_FLAGS = --release
 RUSTFLAGS_MACOS = -C strip=symbols
