@@ -230,7 +230,7 @@ enum SubscriptionParser {
             }
             // Top-level key ends the proxies section
             if inProxies, !line.hasPrefix(" "), !line.isEmpty, line.contains(":") {
-                AppLogger.log(AppLogger.parser, category: "parser", "proxies section ended at line \(lineNum): '\(String(line.prefix(80)))'")
+                AppLogger.log(AppLogger.parser, category: "parser", "proxies section ended at line \(lineNum)")
                 if let node = makeNode(from: current) { nodes.append(node) }
                 current = [:]
                 inProxies = false
@@ -259,22 +259,14 @@ enum SubscriptionParser {
         if let node = makeNode(from: current) { nodes.append(node) }
         AppLogger.log(AppLogger.parser, category: "parser", "result: \(nodes.count) nodes parsed")
         if nodes.isEmpty {
-            // Dump first few proxies-section lines for debugging
             var proxiesStart = -1
             for (i, l) in lines.enumerated() {
                 if l.hasPrefix("proxies:") { proxiesStart = i; break }
             }
             if proxiesStart >= 0 {
-                let end = min(proxiesStart + 10, lines.count)
-                for i in proxiesStart..<end {
-                    AppLogger.log(AppLogger.parser, category: "parser", "line \(i): '\(lines[i])'")
-                }
+                AppLogger.log(AppLogger.parser, category: "parser", "WARNING: 'proxies:' found at line \(proxiesStart) but no nodes parsed")
             } else {
                 AppLogger.log(AppLogger.parser, category: "parser", "WARNING: no 'proxies:' section found in text")
-                // Log first 10 lines to see what we got
-                for i in 0..<min(10, lines.count) {
-                    AppLogger.log(AppLogger.parser, category: "parser", "line \(i): '\(lines[i])'")
-                }
             }
         }
         return nodes

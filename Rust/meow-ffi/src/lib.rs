@@ -54,6 +54,11 @@ pub(crate) fn runtime() -> &'static Runtime {
 
 static ENGINE: Mutex<Option<EngineState>> = Mutex::new(None);
 static HOME_DIR: Mutex<Option<String>> = Mutex::new(None);
+/// Controller REST secret for the currently-running engine, so in-process
+/// diagnostics that hit the controller (see `diagnostics::test_selected_proxy`)
+/// can send the same `Authorization: Bearer` the Swift REST clients do.
+/// `None`/empty means the controller was started without auth (legacy).
+static CONTROLLER_SECRET: Mutex<Option<String>> = Mutex::new(None);
 
 // Traffic is cumulative for the whole PROCESS lifetime (Go semantics: not reset
 // by stop/start). meow-tunnel's Statistics is per-engine-instance, so on stop
@@ -64,6 +69,12 @@ static TRAFFIC_DOWN_BASE: AtomicI64 = AtomicI64::new(0);
 
 pub(crate) fn current_socks_port() -> i32 {
     ENGINE.lock().as_ref().map(|s| s.socks_port).unwrap_or(0)
+}
+
+/// The running controller's REST secret, if one was set at start. Used by
+/// in-process diagnostics to authenticate against the controller.
+pub(crate) fn current_controller_secret() -> Option<String> {
+    CONTROLLER_SECRET.lock().clone().filter(|s| !s.is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +95,12 @@ pub(crate) fn set_error(msg: impl Into<String>) {
 
 #[no_mangle]
 pub extern "C" fn bridge_get_last_error() -> *const c_char {
-    LAST_ERROR.with(|e| e.borrow().as_ptr())
+    match catch_unwind(AssertUnwindSafe(|| {
+        LAST_ERROR.with(|e| e.borrow().as_ptr())
+    })) {
+        Ok(ptr) => ptr,
+        Err(_) => std::ptr::null(),
+    }
 }
 
 #[no_mangle]
@@ -117,11 +133,16 @@ fn guard_cstr(f: impl FnOnce() -> String) -> *mut c_char {
     }
 }
 
-unsafe fn cstr<'a>(ptr: *const c_char) -> Option<&'a str> {
+/// Reads a caller-supplied C string into an owned `String`. Returns an owned
+/// copy (rather than a borrowed `&str`) so we never hand back a reference
+/// into caller-owned memory whose lifetime the Rust borrow checker can't
+/// actually track across the C ABI boundary — every call site needs the
+/// bytes only transiently, so copying up front is both simpler and sound.
+unsafe fn cstr(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
         None
     } else {
-        CStr::from_ptr(ptr).to_str().ok()
+        CStr::from_ptr(ptr).to_str().ok().map(str::to_string)
     }
 }
 
@@ -142,7 +163,7 @@ pub unsafe extern "C" fn bridge_set_home_dir(dir: *const c_char) {
         if d.is_empty() {
             return;
         }
-        *HOME_DIR.lock() = Some(d.to_string());
+        *HOME_DIR.lock() = Some(d.clone());
         // meow's home dir is a first-write-wins OnceLock used by geodata path
         // helpers. Config loading uses HOME_DIR (last-wins) so restarting with
         // a different dir still finds the right config.yaml; only geodata
@@ -162,7 +183,7 @@ pub unsafe extern "C" fn bridge_set_log_file(path: *const c_char) -> i32 {
             set_error("log file path is null");
             return -1;
         };
-        match logging::set_log_file(p) {
+        match logging::set_log_file(&p) {
             Ok(()) => 0,
             Err(e) => {
                 set_error(e);
@@ -176,7 +197,7 @@ pub unsafe extern "C" fn bridge_set_log_file(path: *const c_char) -> i32 {
 pub unsafe extern "C" fn bridge_update_log_level(level: *const c_char) {
     guard((), || {
         if let Some(l) = cstr(level) {
-            logging::set_level(l);
+            logging::set_level(&l);
         }
     });
 }
@@ -222,8 +243,8 @@ pub unsafe extern "C" fn bridge_validate_config(yaml: *const c_char) -> i32 {
         // rather than meow's OnceLock-discovered default. Owned String so the
         // borrow doesn't tie into the parsed future.
         let pinned = match HOME_DIR.lock().as_deref() {
-            Some(home) => geodata::pin_geodata_paths(y, home),
-            None => y.to_string(),
+            Some(home) => geodata::pin_geodata_paths(&y, home),
+            None => y.clone(),
         };
         match runtime().block_on(meow_config::load_config_from_str(&pinned)) {
             Ok(config) => {
@@ -268,7 +289,7 @@ pub unsafe extern "C" fn bridge_start_with_ports(
             set_error("controller_addr is null");
             return -1;
         };
-        let secret_s = cstr(secret).unwrap_or("").to_string();
+        let secret_s = cstr(secret).unwrap_or_default();
 
         let Some(home) = HOME_DIR.lock().clone() else {
             set_error("home dir not set");
@@ -281,12 +302,15 @@ pub unsafe extern "C" fn bridge_start_with_ports(
         }
 
         logging::ensure_subscriber();
+        // Publish the secret so in-process diagnostics can authenticate against
+        // the controller; cleared again if start fails or on stop.
+        *CONTROLLER_SECRET.lock() = Some(secret_s.clone());
         match runtime().block_on(engine::assemble(
             config_path,
             home,
             socks_port,
             dns_port,
-            addr.to_string(),
+            addr,
             secret_s,
         )) {
             Ok(state) => {
@@ -294,6 +318,7 @@ pub unsafe extern "C" fn bridge_start_with_ports(
                 0
             }
             Err(e) => {
+                *CONTROLLER_SECRET.lock() = None;
                 set_error(format!("start proxy: {e}"));
                 -1
             }
@@ -305,7 +330,8 @@ pub unsafe extern "C" fn bridge_start_with_ports(
 pub extern "C" fn bridge_stop_proxy() {
     guard((), || {
         let mut engine = ENGINE.lock();
-        if let Some(state) = engine.take() {
+        *CONTROLLER_SECRET.lock() = None;
+        if let Some(mut state) = engine.take() {
             // Fold the final traffic snapshot into the process-lifetime base
             // before dropping the engine (and its per-instance Statistics).
             let (up, down) = state.tunnel.statistics().snapshot();
@@ -314,7 +340,24 @@ pub extern "C" fn bridge_stop_proxy() {
             for handle in &state.handles {
                 handle.abort();
             }
-            // `state` drops here: tunnel, handles, listeners all released.
+            // abort() only *requests* cancellation; the task (and its
+            // listener socket) isn't guaranteed to be dropped until the
+            // runtime actually polls it again. Wait for every handle to
+            // finish so the sockets are released before we return — otherwise
+            // an immediate restart on the same ports can race and fail with
+            // "address in use". Bounded per-handle so a stuck task can't hang
+            // shutdown forever; we're called from an external (non-runtime)
+            // thread, so block_on here is safe and won't deadlock a worker.
+            let handles = std::mem::take(&mut state.handles);
+            runtime().block_on(async {
+                for handle in handles {
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+                    // Ok(Err(JoinError)) is expected (task was cancelled);
+                    // Err(Elapsed) means the task didn't wind down in time —
+                    // nothing more we can safely do from here, so proceed.
+                }
+            });
+            // `state` drops here: tunnel, listeners all released.
         }
     });
 }
@@ -381,9 +424,14 @@ static VERSION: OnceLock<CString> = OnceLock::new();
 #[no_mangle]
 pub extern "C" fn bridge_version() -> *const c_char {
     // meow crate version at the pinned rev; cosmetic (Swift never parses it).
-    VERSION
-        .get_or_init(|| CString::new("meow-rs 0.16.0").unwrap())
-        .as_ptr()
+    match catch_unwind(AssertUnwindSafe(|| {
+        VERSION
+            .get_or_init(|| CString::new("meow-rs 0.16.0").unwrap())
+            .as_ptr()
+    })) {
+        Ok(ptr) => ptr,
+        Err(_) => std::ptr::null(),
+    }
 }
 
 /// No-op — Rust manages its own memory. The symbol MUST exist (Swift calls it
@@ -397,26 +445,37 @@ pub extern "C" fn bridge_force_gc() {}
 
 #[no_mangle]
 pub unsafe extern "C" fn bridge_test_direct_tcp(host: *const c_char, port: i32) -> *mut c_char {
-    let host = cstr(host).unwrap_or("").to_string();
-    guard_cstr(move || diagnostics::test_direct_tcp(&host, port))
+    // SAFETY: `host` is read (and copied to an owned String) only inside the
+    // guarded closure, so a panic while reading a malformed/dangling pointer
+    // is caught by catch_unwind rather than unwinding across the C ABI.
+    guard_cstr(move || {
+        let host = cstr(host).unwrap_or_default();
+        diagnostics::test_direct_tcp(&host, port)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn bridge_test_proxy_http(target: *const c_char) -> *mut c_char {
-    let target = cstr(target).unwrap_or("").to_string();
-    guard_cstr(move || diagnostics::test_proxy_http(&target))
+    guard_cstr(move || {
+        let target = cstr(target).unwrap_or_default();
+        diagnostics::test_proxy_http(&target)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn bridge_test_dns_resolver(dns_addr: *const c_char) -> *mut c_char {
-    let dns_addr = cstr(dns_addr).unwrap_or("").to_string();
-    guard_cstr(move || diagnostics::test_dns_resolver(&dns_addr))
+    guard_cstr(move || {
+        let dns_addr = cstr(dns_addr).unwrap_or_default();
+        diagnostics::test_dns_resolver(&dns_addr)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn bridge_test_selected_proxy(api_addr: *const c_char) -> *mut c_char {
-    let api_addr = cstr(api_addr).unwrap_or("").to_string();
-    guard_cstr(move || diagnostics::test_selected_proxy(&api_addr))
+    guard_cstr(move || {
+        let api_addr = cstr(api_addr).unwrap_or_default();
+        diagnostics::test_selected_proxy(&api_addr)
+    })
 }
 
 // ---------------------------------------------------------------------------

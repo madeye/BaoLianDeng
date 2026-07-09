@@ -15,15 +15,24 @@
 //! So rather than trust the `OnceLock`, we inject explicit `geodata.*-path`
 //! overrides (which take precedence over discovery) sourced from the bridge
 //! home dir the caller most recently set, into every config we parse — for
-//! both validation and engine start. User-specified paths are never
-//! overwritten; on any YAML error we return the input untouched so validation
-//! still sees (and rejects) malformed configs.
+//! both validation and engine start.
+//!
+//! A user (or a merged subscription config) MAY set these paths explicitly,
+//! but we only honor a value that stays inside the bridge home dir — passing
+//! it straight to meow-config would otherwise let an arbitrary subscription
+//! payload make the kernel mmap-open any file readable by the process (path
+//! injection). A path that is relative, escapes `home` via `..`, or resolves
+//! outside `home` entirely is treated as absent and replaced by the pinned
+//! in-home path instead. On any YAML error we return the input untouched so
+//! validation still sees (and rejects) malformed configs.
 
 use serde_yaml::{Mapping, Value};
+use std::path::{Component, Path};
 
 /// Insert `geodata.{mmdb-path,asn-path,geosite-path}` pointing at `<home>/…`
-/// unless the user already set them. Returns the (possibly rewritten) YAML, or
-/// the original string unchanged if it isn't a YAML mapping.
+/// unless the user already set them to a path that is safely contained within
+/// `home`. Returns the (possibly rewritten) YAML, or the original string
+/// unchanged if it isn't a YAML mapping.
 pub fn pin_geodata_paths(yaml: &str, home: &str) -> String {
     let mut root: Value = match serde_yaml::from_str(yaml) {
         Ok(v) => v,
@@ -46,17 +55,51 @@ pub fn pin_geodata_paths(yaml: &str, home: &str) -> String {
         return yaml.to_string();
     };
 
-    set_if_absent(geodata, "mmdb-path", &format!("{home}/Country.mmdb"));
-    set_if_absent(geodata, "asn-path", &format!("{home}/GeoLite2-ASN.mmdb"));
-    set_if_absent(geodata, "geosite-path", &format!("{home}/geosite.dat"));
+    set_if_absent_or_unsafe(geodata, "mmdb-path", &format!("{home}/Country.mmdb"), home);
+    set_if_absent_or_unsafe(
+        geodata,
+        "asn-path",
+        &format!("{home}/GeoLite2-ASN.mmdb"),
+        home,
+    );
+    set_if_absent_or_unsafe(
+        geodata,
+        "geosite-path",
+        &format!("{home}/geosite.dat"),
+        home,
+    );
 
     serde_yaml::to_string(&root).unwrap_or_else(|_| yaml.to_string())
 }
 
-fn set_if_absent(map: &mut Mapping, key: &str, value: &str) {
-    let key = Value::String(key.to_string());
-    if !map.contains_key(&key) {
-        map.insert(key, Value::String(value.to_string()));
+/// Conservative allow-list check for a user-supplied geodata path: only an
+/// absolute path with no `..` traversal component that lexically resolves
+/// inside `home` is trusted. Everything else (relative paths, `..`
+/// traversal, or an absolute path outside `home`) is rejected — meow-config
+/// mmap-opens this path verbatim, so honoring an attacker-controlled value
+/// here would be an arbitrary-file-read primitive.
+fn is_safe_geodata_path(existing: &str, home: &str) -> bool {
+    let path = Path::new(existing);
+    if !path.is_absolute() {
+        return false;
+    }
+    if path.components().any(|c| matches!(c, Component::ParentDir)) {
+        return false;
+    }
+    path.starts_with(Path::new(home))
+}
+
+/// Set `map[key] = value` unless `map[key]` is already present AND is a safe
+/// in-home path (see [`is_safe_geodata_path`]). An absent key, a non-string
+/// value, or an unsafe path are all overridden with the pinned `value`.
+fn set_if_absent_or_unsafe(map: &mut Mapping, key: &str, value: &str, home: &str) {
+    let key_v = Value::String(key.to_string());
+    let is_safe = map
+        .get(&key_v)
+        .and_then(Value::as_str)
+        .is_some_and(|existing| is_safe_geodata_path(existing, home));
+    if !is_safe {
+        map.insert(key_v, Value::String(value.to_string()));
     }
 }
 
@@ -72,10 +115,35 @@ mod tests {
     }
 
     #[test]
-    fn preserves_user_paths() {
+    fn preserves_user_path_inside_home() {
+        let out = pin_geodata_paths("geodata:\n  mmdb-path: /home/x/custom.mmdb\n", "/home/x");
+        assert!(out.contains("/home/x/custom.mmdb"));
+        assert!(!out.contains("mmdb-path: /home/x/Country.mmdb"));
+    }
+
+    #[test]
+    fn overrides_user_path_outside_home() {
+        // A path outside the bridge home dir must never be trusted — it would
+        // let meow-config mmap-open an arbitrary file on disk.
         let out = pin_geodata_paths("geodata:\n  mmdb-path: /custom/C.mmdb\n", "/home/x");
-        assert!(out.contains("/custom/C.mmdb"));
-        assert!(!out.contains("/home/x/Country.mmdb"));
+        assert!(!out.contains("/custom/C.mmdb"), "{out}");
+        assert!(out.contains("mmdb-path: /home/x/Country.mmdb"), "{out}");
+    }
+
+    #[test]
+    fn overrides_path_traversal_escaping_home() {
+        let out = pin_geodata_paths(
+            "geodata:\n  mmdb-path: /home/x/../../etc/passwd\n",
+            "/home/x",
+        );
+        assert!(!out.contains("/etc/passwd"), "{out}");
+        assert!(out.contains("mmdb-path: /home/x/Country.mmdb"), "{out}");
+    }
+
+    #[test]
+    fn overrides_relative_user_path() {
+        let out = pin_geodata_paths("geodata:\n  mmdb-path: Country.mmdb\n", "/home/x");
+        assert!(out.contains("mmdb-path: /home/x/Country.mmdb"), "{out}");
     }
 
     #[test]

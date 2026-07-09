@@ -599,7 +599,7 @@ struct HomeView: View {
         var request = URLRequest(url: url)
         request.setValue("ClashMetaForAndroid/2.11.1.Meta", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
-        AppLogger.log(AppLogger.network, category: "network", "fetchSubscription URL=\(urlString) status=\((response as? HTTPURLResponse)?.statusCode ?? -1) bytes=\(data.count)")
+        AppLogger.log(AppLogger.network, category: "network", "fetchSubscription host=\(url.host ?? "?") status=\((response as? HTTPURLResponse)?.statusCode ?? -1) bytes=\(data.count)")
         return try Self.parseFetchedSubscription(data: data, response: response)
     }
 
@@ -613,7 +613,7 @@ struct HomeView: View {
             AppLogger.log(AppLogger.network, category: "network", "ERROR: fetchSubscription cannot decode as UTF-8")
             throw URLError(.cannotDecodeContentData)
         }
-        AppLogger.log(AppLogger.network, category: "network", "fetchSubscription raw preview (first 500 chars): \(String(text.prefix(500)))")
+        AppLogger.log(AppLogger.network, category: "network", "fetchSubscription received \(text.count) bytes")
         let result = SubscriptionParser.parseWithYAML(text)
         let rawContent = result.generatedYAML ?? text
         AppLogger.log(AppLogger.network, category: "network", "fetchSubscription parsed \(result.nodes.count) nodes (generated YAML: \(result.generatedYAML != nil))")

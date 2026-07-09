@@ -22,7 +22,7 @@ use meow_tunnel::Tunnel;
 use parking_lot::RwLock;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Live engine instance. Dropping it (via [`crate` stop]) releases the tunnel
 /// and its statistics; the tokio runtime itself is process-global and reused.
@@ -50,9 +50,22 @@ pub async fn assemble(
     // Force inbound / DNS / controller endpoints regardless of the YAML.
     let socks_addr: SocketAddr = format!("127.0.0.1:{socks_port}").parse()?;
     let dns_addr: SocketAddr = format!("127.0.0.1:{dns_port}").parse()?;
-    let api_addr: SocketAddr = controller_addr
+    let parsed_api_addr: SocketAddr = controller_addr
         .parse()
         .map_err(|e| anyhow::anyhow!("controller_addr '{controller_addr}': {e}"))?;
+    // Defense-in-depth: a compromised/buggy caller must never be able to bind
+    // the (possibly unauthenticated) controller API to a non-loopback address
+    // and expose it to the LAN. Force the IP to loopback while preserving the
+    // caller-supplied port.
+    let api_addr = if parsed_api_addr.ip().is_loopback() {
+        parsed_api_addr
+    } else {
+        warn!("controller_addr '{parsed_api_addr}' is not loopback; overriding IP to 127.0.0.1");
+        SocketAddr::new(
+            IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            parsed_api_addr.port(),
+        )
+    };
 
     config.listeners.named = vec![NamedListener {
         name: "mixed".to_string(),

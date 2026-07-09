@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import Foundation
+import Security
 
 enum AppConstants {
     static let appGroupIdentifier: String? = nil
@@ -27,6 +28,13 @@ enum AppConstants {
     /// hitting `/proxies`, `/connections`, etc. Updated each tunnel start
     /// because the port is auto-picked.
     static let externalControllerAddrKey = "externalControllerAddr"
+    /// UserDefaults key. The main app generates a random per-session secret
+    /// when it picks the controller port and stores it here; the extension
+    /// reads it from `providerConfiguration` and starts mihomo's REST API
+    /// with it, and the app's REST clients send it as `Authorization: Bearer`.
+    /// Empty/absent means "no auth" (legacy behaviour) — callers should still
+    /// send whatever is present.
+    static let externalControllerSecretKey = "externalControllerSecret"
     static let dailyTrafficKey = "dailyTrafficRecords"
     static let subscriptionUsageKey = "subscriptionUsageRecords"
     static let perAppProxySettingsKey = "perAppProxySettings"
@@ -38,6 +46,37 @@ enum AppConstants {
     /// which would just hit whatever foreign mihomo happens to own 9090.
     static var externalControllerAddr: String? {
         sharedDefaults.string(forKey: externalControllerAddrKey)
+    }
+
+    /// Live mihomo REST controller secret, or nil when none has been
+    /// generated yet. Paired with `externalControllerAddr`.
+    static var externalControllerSecret: String? {
+        let secret = sharedDefaults.string(forKey: externalControllerSecretKey)
+        return (secret?.isEmpty ?? true) ? nil : secret
+    }
+
+    /// Generate a fresh cryptographically-random controller secret (32 hex
+    /// chars from 16 random bytes). Returns a non-empty string on success,
+    /// or nil if the system RNG fails.
+    static func generateControllerSecret() -> String? {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            return nil
+        }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Build a URLRequest for the controller, attaching the `Authorization:
+    /// Bearer <secret>` header when a secret is available. All REST clients
+    /// (`MihomoAPI`, `VPNManager`, `ProxyGroupsViewModel`) must route through
+    /// this so the header is applied uniformly.
+    static func authorizedControllerRequest(url: URL, method: String = "GET") -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if let secret = externalControllerSecret {
+            request.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 
     static func externalControllerURL(pathSegments: [String], queryItems: [URLQueryItem] = []) -> URL? {

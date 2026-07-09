@@ -74,6 +74,15 @@ final class TrafficStore: ObservableObject {
     // we resolve group membership directly from the on-disk config.
     private var groupMembersCache: [String: [String]] = [:]
     private var lastGroupRefresh: Date = .distantPast
+    // Serializes all UserDefaults writes for dailyTrafficKey /
+    // subscriptionUsageKey so an older tick's write can never land after a
+    // newer one, and so resetSubscriptionUsages() can't be overtaken by an
+    // already-queued save that would resurrect the cleared data.
+    private let persistQueue = DispatchQueue(label: "io.github.baoliandeng.trafficstore.persist")
+    // Bumped on every fetchConnections() call; a completion handler discards
+    // its response if a newer request has since been issued, so a reordered
+    // stale response can't be misread as an engine counter reset.
+    private var fetchGeneration: Int = 0
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -180,6 +189,8 @@ final class TrafficStore: ObservableObject {
 
     private func fetchConnections() {
         guard let url = AppConstants.externalControllerURL(pathSegments: ["connections"]) else { return }
+        fetchGeneration += 1
+        let gen = fetchGeneration
         URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             guard let data = data, error == nil else { return }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -192,7 +203,8 @@ final class TrafficStore: ObservableObject {
             let uploadTotal = Self.int64Value(json["upload_total"] ?? json["uploadTotal"])
             let downloadTotal = Self.int64Value(json["download_total"] ?? json["downloadTotal"])
             Task { @MainActor [weak self] in
-                self?.processConnections(connections, uploadTotal: uploadTotal, downloadTotal: downloadTotal)
+                guard let self, gen == self.fetchGeneration else { return }
+                self.processConnections(connections, uploadTotal: uploadTotal, downloadTotal: downloadTotal)
             }
         }.resume()
     }
@@ -307,9 +319,12 @@ final class TrafficStore: ObservableObject {
     }
 
     private func pruneOldRecords() {
-        guard dailyRecords.count > 30 else { return }
+        // Keep at least 62 days (two months) so day 1 of a 31-day month is
+        // never dropped from the current-month rollup.
+        let retentionDays = 62
+        guard dailyRecords.count > retentionDays else { return }
         let sorted = dailyRecords.sorted { $0.date > $1.date }
-        dailyRecords = Array(sorted.prefix(30))
+        dailyRecords = Array(sorted.prefix(retentionDays))
     }
 
     private func loadRecords() {
@@ -323,7 +338,7 @@ final class TrafficStore: ObservableObject {
 
     private func saveRecords() {
         let snapshot = dailyRecords
-        Task.detached(priority: .background) {
+        persistQueue.async {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             AppConstants.sharedDefaults
                 .set(data, forKey: AppConstants.dailyTrafficKey)
@@ -364,7 +379,7 @@ final class TrafficStore: ObservableObject {
 
     private func saveSubscriptionUsages() {
         let snapshot = subscriptionUsages
-        Task.detached(priority: .background) {
+        persistQueue.async {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             AppConstants.sharedDefaults
                 .set(data, forKey: AppConstants.subscriptionUsageKey)
@@ -373,7 +388,12 @@ final class TrafficStore: ObservableObject {
 
     func resetSubscriptionUsages() {
         subscriptionUsages.removeAll()
-        defaults.removeObject(forKey: AppConstants.subscriptionUsageKey)
+        // Clear on persistQueue (not synchronously here) so this ordering is
+        // enforced relative to any save already queued: the clear runs after
+        // saves enqueued before this call, and before any enqueued after.
+        persistQueue.async {
+            AppConstants.sharedDefaults.removeObject(forKey: AppConstants.subscriptionUsageKey)
+        }
         refreshSubscriptionCache()
     }
 

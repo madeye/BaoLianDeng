@@ -132,8 +132,17 @@ enum MihomoAPI {
         let uploadTotal = int64Value(json["uploadTotal"] ?? json["upload_total"])
         let downloadTotal = int64Value(json["downloadTotal"] ?? json["download_total"])
 
+        let isoFormatterWithFractionalSeconds = ISO8601DateFormatter()
+        isoFormatterWithFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
         let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        isoFormatter.formatOptions = [.withInternetDateTime]
+
+        func parseStart(_ string: String) -> Date {
+            isoFormatterWithFractionalSeconds.date(from: string)
+                ?? isoFormatter.date(from: string)
+                ?? Date()
+        }
 
         let parsed = connections.compactMap { conn -> MihomoConnection? in
             let id = conn["id"] as? String ?? UUID().uuidString
@@ -150,7 +159,7 @@ enum MihomoAPI {
             let upload = int64Value(conn["upload"])
             let download = int64Value(conn["download"])
             let startStr = conn["start"] as? String ?? ""
-            let start = isoFormatter.date(from: startStr) ?? Date()
+            let start = parseStart(startStr)
 
             return MihomoConnection(
                 id: id,
@@ -220,8 +229,7 @@ enum MihomoAPI {
     /// Select a proxy node within a group via PUT /proxies/{group}
     static func selectProxy(group: String, name: String) async throws {
         let url = try makeURL(pathSegments: ["proxies", group])
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
+        var request = AppConstants.authorizedControllerRequest(url: url, method: "PUT")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
 
@@ -242,7 +250,8 @@ enum MihomoAPI {
             ]
         )
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let request = AppConstants.authorizedControllerRequest(url: url)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw MihomoAPIError.requestFailed("Delay test failed")
         }
@@ -271,7 +280,8 @@ enum MihomoAPI {
             ]
         )
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let request = AppConstants.authorizedControllerRequest(url: url)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw MihomoAPIError.requestFailed("Delay test failed")
         }
@@ -288,8 +298,7 @@ enum MihomoAPI {
 
     static func patchConfig(_ config: [String: Any]) async throws {
         let url = try makeURL(pathSegments: ["configs"])
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
+        var request = AppConstants.authorizedControllerRequest(url: url, method: "PATCH")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: config)
 
@@ -334,7 +343,8 @@ enum MihomoAPI {
                 URLQueryItem(name: "type", value: type),
             ]
         )
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let request = AppConstants.authorizedControllerRequest(url: url)
+        let (data, _) = try await URLSession.shared.data(for: request)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw MihomoAPIError.decodingFailed
         }
@@ -356,7 +366,8 @@ enum MihomoAPI {
 
     private static func get(_ path: String) async throws -> Data {
         let url = try makeURL(pathSegments: pathSegments(from: path))
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let request = AppConstants.authorizedControllerRequest(url: url)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw MihomoAPIError.requestFailed("GET \(path) failed")
         }
@@ -373,8 +384,7 @@ enum MihomoAPI {
 
     private static func delete(pathSegments: [String], errorPath: String) async throws {
         let url = try makeURL(pathSegments: pathSegments)
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
+        let request = AppConstants.authorizedControllerRequest(url: url, method: "DELETE")
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw MihomoAPIError.requestFailed("DELETE \(errorPath) failed")

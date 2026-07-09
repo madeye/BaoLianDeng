@@ -10,7 +10,9 @@ VM_NAME="bld-e2e-run-$$"
 TROJAN_PID=""
 FALLBACK_PID=""
 VM_PID=""
-TROJAN_CERT_DIR="/tmp/trojan-cert"
+# Use a mktemp dir (not a predictable /tmp path) so a co-resident user can't
+# pre-create it as a symlink and redirect the test TLS key we write into it.
+TROJAN_CERT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/trojan-cert.XXXXXX")"
 FALLBACK_PORT="18080"
 
 source "$SCRIPT_DIR/lib/vm-helpers.sh"
@@ -94,8 +96,9 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
     -days 1 -nodes -subj "/CN=e2e-trojan" 2>/dev/null
 echo "Generated trojan-go TLS certificate"
 
-# Start a minimal fallback HTTP server (trojan-go requires a valid fallback)
-python3 -m http.server "$FALLBACK_PORT" --directory /tmp &>/dev/null &
+# Start a minimal fallback HTTP server (trojan-go requires a valid fallback).
+# Bind to loopback only — the default 0.0.0.0 would expose /tmp to the LAN.
+python3 -m http.server "$FALLBACK_PORT" --bind 127.0.0.1 --directory /tmp &>/dev/null &
 FALLBACK_PID=$!
 sleep 1
 

@@ -26,10 +26,14 @@ enum AppLogger {
     static let parser  = Logger(subsystem: subsystem, category: "parser")
     static let network = Logger(subsystem: subsystem, category: "network")
 
-    /// Log to both os.Logger and NSLog so messages appear in system log.
-    /// Uses .notice level so messages are persisted and visible via `log show`.
+    /// Logs via os.Logger only, at default privacy (redacted in release builds).
+    ///
+    /// The NSLog mirror was removed: NSLog always writes plaintext to the
+    /// persistent system log, which previously leaked proxy credentials
+    /// (Shadowsocks passwords, VMess/VLESS UUIDs, Trojan passwords) whenever a
+    /// call site logged raw subscription content. Callers MUST NOT pass
+    /// secrets or raw credential material to this function.
     static func log(_ logger: Logger, category: String, _ message: String) {
-        logger.notice("\(message, privacy: .public)")
-        NSLog("[%@] %@", category, message)
+        logger.notice("\(message)")
     }
 }

@@ -121,7 +121,14 @@ final class ProxyGroupsViewModel {
                 }
             }
         } catch {
-            // Silently swallow errors (same pattern as meow-go)
+            // The whole delay-test call failed (e.g. controller unreachable).
+            // Clear this group's stale per-proxy delays rather than leaving
+            // old results displayed as if they were just refreshed.
+            if let testedGroup = groups.first(where: { $0.name == group }) {
+                for proxyName in testedGroup.all {
+                    delays[proxyName] = nil
+                }
+            }
         }
 
         testingGroups.remove(group)
@@ -148,6 +155,23 @@ final class ProxyGroupsViewModel {
     /// so the UI always falls back to the live `group.now` and
     /// `replaySelectionsToEngine()` never pins them. Groups absent from the
     /// loaded config (e.g. another subscription's) are left untouched.
+    ///
+    /// Known limitation (issue #75 item 6): `selections` is keyed only by
+    /// group *name*, with no per-subscription/config scoping. The
+    /// `group.all.contains(current)` check below guards against replaying a
+    /// selection that no longer exists in the group, but it cannot detect
+    /// cross-subscription contamination: if two different subscriptions both
+    /// define a same-named `Selector` group and happen to share a node name,
+    /// a selection saved under one subscription will pass this containment
+    /// check and be silently replayed into the other subscription's
+    /// same-named group, even though the user never chose that node there.
+    /// TODO(#75): fix properly by keying `selections` (and the persisted
+    /// `proxyGroupSelections` blob) by a composite key of subscription/config
+    /// ID + group name instead of group name alone, so selections from one
+    /// subscription can never leak into a same-named group in another. This
+    /// requires new storage (tracking the active subscription ID alongside
+    /// selections) and touches `saveSelections`/`loadSelections`/
+    /// `replaySelectionsToEngine` as well as this merge function.
     static func mergedSelections(
         _ existing: [String: String],
         groups: [MihomoProxyGroup]

@@ -524,7 +524,7 @@ final class VPNManager: NSObject, ObservableObject {
             }
             return
         }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+        URLSession.shared.dataTask(with: AppConstants.authorizedControllerRequest(url: url)) { [weak self] data, _, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let proxies = json["proxies"] as? [String: Any] else {
@@ -572,8 +572,7 @@ final class VPNManager: NSObject, ObservableObject {
             for (groupName, selection) in targets {
                 guard let putURL = AppConstants.externalControllerURL(pathSegments: ["proxies", groupName]),
                       let body = try? JSONSerialization.data(withJSONObject: ["name": selection]) else { continue }
-                var request = URLRequest(url: putURL)
-                request.httpMethod = "PUT"
+                var request = AppConstants.authorizedControllerRequest(url: putURL, method: "PUT")
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = body
                 URLSession.shared.dataTask(with: request) { [weak self] _, response, putError in
@@ -657,6 +656,12 @@ final class VPNManager: NSObject, ObservableObject {
             providerConfig["dnsPort"] = Int(dns)
             providerConfig["controllerAddr"] = ctrlAddr
             defaults.set(ctrlAddr, forKey: AppConstants.externalControllerAddrKey)
+            if let secret = AppConstants.generateControllerSecret() {
+                providerConfig["secret"] = secret
+                defaults.set(secret, forKey: AppConstants.externalControllerSecretKey)
+            } else {
+                dbg("passSettings: WARN failed to generate controller secret")
+            }
             dbg("passSettings: ports socks=\(socks) dns=\(dns) ctrl=\(ctrl)")
         } else {
             dbg("passSettings: WARN failed to pick ephemeral ports")

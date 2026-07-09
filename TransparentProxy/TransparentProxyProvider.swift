@@ -32,6 +32,19 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private static let socksHost = "127.0.0.1"
     private static let mihomoDNSHost = "127.0.0.1"
 
+    /// Dedicated queue for the blocking POSIX socket round-trip in
+    /// `sendDNSToMihomo`. Swift's cooperative thread pool assumes tasks never
+    /// block a thread; running a blocking `recv()` there can starve other
+    /// async work, so it's dispatched here instead.
+    private let dnsQueue = DispatchQueue(
+        label: "io.github.baoliandeng.dns", attributes: .concurrent
+    )
+
+    /// Serializes all access to the tunnel log file (and its trimming) so
+    /// concurrent `log()` calls from many Tasks and the periodic trim timer
+    /// never interleave their exists-check/open/seek/write/close sequences.
+    private let logQueue = DispatchQueue(label: "io.github.baoliandeng.log")
+
     /// Ports the main app picked for this tunnel session, forwarded via
     /// providerConfiguration in setupConfigFromProvider(). Mihomo binds
     /// these in startProxy(). Defaulting to 0 / "" makes a stray flow
@@ -39,6 +52,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private var socksPort: UInt16 = 0
     private var mihomoDNSPort: UInt16 = 0
     private var controllerAddr: String = ""
+    private var controllerSecret: String = ""
 
     private lazy var logURL: URL = {
         let dir = ConfigManager.shared.configDirectoryURL?.deletingLastPathComponent()
@@ -50,14 +64,16 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private func log(_ message: String) {
         let line = "[\(Date())] \(message)\n"
         AppLogger.tunnel.notice("\(message, privacy: .public)")
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: logURL.path),
-               let handle = try? FileHandle(forWritingTo: logURL) {
+        guard let data = line.data(using: .utf8) else { return }
+        let url = logURL
+        logQueue.async {
+            if FileManager.default.fileExists(atPath: url.path),
+               let handle = try? FileHandle(forWritingTo: url) {
                 handle.seekToEndOfFile()
                 handle.write(data)
                 try? handle.close()
             } else {
-                try? data.write(to: logURL)
+                try? data.write(to: url)
             }
         }
     }
@@ -127,6 +143,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             let socks = self?.socksPort ?? 0
             let dns = self?.mihomoDNSPort ?? 0
             let ctrl = self?.controllerAddr ?? ""
+            let secret = self?.controllerSecret ?? ""
             guard socks > 0, dns > 0, !ctrl.isEmpty else {
                 self?.log("ERROR: provider configuration missing ports/controllerAddr")
                 completionHandler(ProviderError.configNotFound)
@@ -137,7 +154,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             )
             var startError: NSError?
             BridgeStartWithPorts(
-                Int32(socks), Int32(dns), ctrl, "", &startError
+                Int32(socks), Int32(dns), ctrl, secret, &startError
             )
             if let startError = startError {
                 self?.log("ERROR: BridgeStartWithPorts failed: \(startError)")
@@ -246,7 +263,21 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         let destPort = endpoint.port
         log("TCP \(destHost):\(destPort)")
 
+        guard let destPortValue = UInt16(destPort) else {
+            log("ERROR: malformed TCP destination port \(destPort)")
+            flow.closeReadWithError(ProviderError.invalidDestination)
+            flow.closeWriteWithError(ProviderError.invalidDestination)
+            return
+        }
+
         Task {
+            // Open the flow first — if this fails there is nothing to close.
+            do {
+                try await openFlow(flow)
+            } catch {
+                return
+            }
+
             var socksConn: NWConnection?
             do {
                 // Connect to Mihomo's SOCKS5 proxy
@@ -262,11 +293,8 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 try await SOCKS5Client.handshake(
                     connection: conn,
                     destHost: destHost,
-                    destPort: UInt16(destPort) ?? 0
+                    destPort: destPortValue
                 )
-
-                // Open the flow
-                try await openFlow(flow)
 
                 // Relay bidirectionally: flow ↔ SOCKS5 connection
                 await relayTCP(flow: flow, connection: conn)
@@ -358,7 +386,10 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                     continue
                 }
 
-                let port = UInt16(endpoint.port) ?? 0
+                guard let port = UInt16(endpoint.port) else {
+                    log("UDP: malformed destination port \(endpoint.port), dropping datagram")
+                    continue
+                }
 
                 if port == 53 {
                     await handleDNSQuery(
@@ -399,7 +430,12 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         query: Data, flow: NEAppProxyUDPFlow, endpoint: NWHostEndpoint
     ) async {
         guard query.count >= 12 else { return }
-        guard let response = sendDNSToMihomo(query: query) else {
+        let response = await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
+            dnsQueue.async { [weak self] in
+                cont.resume(returning: self?.sendDNSToMihomo(query: query))
+            }
+        }
+        guard let response = response else {
             log("DNS forward failed")
             return
         }
@@ -443,7 +479,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
         guard sent == query.count else { return nil }
 
-        var respBuf = [UInt8](repeating: 0, count: 4096)
+        var respBuf = [UInt8](repeating: 0, count: 65535)
         let n = recv(sock, &respBuf, respBuf.count, 0)
         guard n > 0 else { return nil }
         return Data(respBuf[0..<n])
@@ -685,6 +721,9 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         if let ctrl = providerConfig?["controllerAddr"] as? String {
             self.controllerAddr = ctrl
         }
+        if let secret = providerConfig?["secret"] as? String {
+            self.controllerSecret = secret
+        }
 
         return configDir
     }
@@ -747,12 +786,15 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private static let maxLogLines = 2000
 
     private func trimLogFile() {
-        trimLog(at: logURL)
-        let rustLogURL = logURL.deletingLastPathComponent()
-            .appendingPathComponent("rust_bridge.log")
-        trimLog(at: rustLogURL)
+        logQueue.sync {
+            trimLog(at: logURL)
+            let rustLogURL = logURL.deletingLastPathComponent()
+                .appendingPathComponent("rust_bridge.log")
+            trimLog(at: rustLogURL)
+        }
     }
 
+    /// Must only be called while running on `logQueue`.
     private func trimLog(at url: URL) {
         guard let content = try? String(
             contentsOf: url, encoding: .utf8
@@ -905,6 +947,7 @@ private func withOneShotFlowContinuation<T>(
 enum ProviderError: LocalizedError {
     case configNotFound
     case udpRelayFailed
+    case invalidDestination
 
     var errorDescription: String? {
         switch self {
@@ -912,6 +955,8 @@ enum ProviderError: LocalizedError {
             return "config.yaml not found. Please configure proxies first."
         case .udpRelayFailed:
             return "UDP relay socket creation failed"
+        case .invalidDestination:
+            return "Flow had a malformed destination port"
         }
     }
 }

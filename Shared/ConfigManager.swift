@@ -53,13 +53,33 @@ final class ConfigManager {
         }
     }
 
+    /// Sanity threshold (bytes) a downloaded geodata file must exceed to be
+    /// considered valid rather than truncated. Country.mmdb/geosite.dat are
+    /// both well over 1MB in practice; 1KB just rules out empty/truncated
+    /// responses (e.g. an error page or a connection cut mid-transfer).
+    private static let minGeodataFileSize = 1024
+
     /// Ensure geodata files (Country.mmdb, geosite.dat) exist in the given directory.
     /// Tries the app bundle first, then downloads from jsDelivr.
     func ensureGeodataFiles(configDir: String) {
+        // Bound how long a stalled/slow download can block this call — it
+        // runs synchronously (semaphore-gated) on the tunnel startup path.
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.timeoutIntervalForResource = 15
+        let session = URLSession(configuration: sessionConfig)
+
         for file in Self.geodataFiles {
             let filename = "\(file.name).\(file.ext)"
             let dest = (configDir as NSString).appendingPathComponent(filename)
-            guard !fileManager.fileExists(atPath: dest) else { continue }
+
+            // Treat an existing-but-truncated file (e.g. left over from a
+            // prior interrupted download) as absent so it gets replaced,
+            // rather than being mistaken for a valid, already-present file.
+            if let attrs = try? fileManager.attributesOfItem(atPath: dest),
+               let size = attrs[.size] as? Int,
+               size > Self.minGeodataFileSize {
+                continue
+            }
 
             // Try bundled copy first. In the main app, geodata is packaged
             // inside the embedded provider extension rather than as a top-level
@@ -79,7 +99,7 @@ final class ConfigManager {
             guard let url = URL(string: file.url) else { continue }
 
             let semaphore = DispatchSemaphore(value: 0)
-            let task = URLSession.shared.dataTask(with: url) { data, response, error in
+            let task = session.dataTask(with: url) { data, response, error in
                 defer { semaphore.signal() }
                 if let error = error {
                     AppLogger.config.warning("Failed to download \(filename): \(error.localizedDescription)")
@@ -91,8 +111,12 @@ final class ConfigManager {
                     AppLogger.config.warning("Bad response downloading \(filename)")
                     return
                 }
+                guard data.count > Self.minGeodataFileSize else {
+                    AppLogger.config.warning("Downloaded \(filename) looks truncated (\(data.count) bytes), discarding")
+                    return
+                }
                 do {
-                    try data.write(to: URL(fileURLWithPath: dest))
+                    try data.write(to: URL(fileURLWithPath: dest), options: .atomic)
                     AppLogger.config.notice("Downloaded \(filename) (\(data.count) bytes)")
                 } catch {
                     AppLogger.config.warning("Failed to write \(filename): \(error.localizedDescription)")
@@ -147,12 +171,22 @@ final class ConfigManager {
         return nil
     }
 
+    /// The single writer of config.yaml. Always runs `sanitizeConfigString`
+    /// so raw-editor and subscription-merge callers can't bypass the TUN /
+    /// geo-auto-update / subscriptions-section invariants by writing
+    /// directly — sanitization is idempotent, so re-sanitizing an
+    /// already-sanitized config is a no-op. Also locks the file down to
+    /// owner-only permissions since it can hold subscription-derived proxy
+    /// credentials.
     func saveConfig(_ yaml: String) throws {
         try ensureConfigDirectory()
         guard let fileURL = configFileURL else {
             throw ConfigError.sharedContainerUnavailable
         }
-        try yaml.write(to: fileURL, atomically: true, encoding: .utf8)
+        var content = yaml
+        Self.sanitizeConfigString(&content)
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     func loadConfig() throws -> String {
@@ -309,6 +343,34 @@ final class ConfigManager {
         return lines.joined(separator: "\n")
     }
 
+    /// If `trimmed` (an already-whitespace-trimmed line) sets `key:` to a
+    /// truthy `true` value, returns its trailing whitespace/comment suffix
+    /// (possibly empty) so the caller can preserve it when rewriting the
+    /// line. Returns nil if the line doesn't set `key` to `true`.
+    /// Tolerates extra internal whitespace, optional single/double quoting
+    /// around the value, and a trailing comment — e.g. `enable:true`,
+    /// `enable:   true`, `enable: "true"`, `enable: 'true'  # note`.
+    /// A plain substring match on `"\(key): true"` misses the whitespace/
+    /// quoting variants, which would let a subscription-supplied config
+    /// re-enable TUN despite the sanitizer running.
+    private static func truthySuffix(_ trimmed: String, key: String) -> String? {
+        let pattern = "^\(NSRegularExpression.escapedPattern(for: key)):\\s*(?:\"true\"|'true'|true)(\\s*(?:#.*)?)$"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        guard let match = regex.firstMatch(in: trimmed, range: range),
+              let suffixRange = Range(match.range(at: 1), in: trimmed) else {
+            return nil
+        }
+        return String(trimmed[suffixRange])
+    }
+
+    /// Rewrites `line`'s `key:` value to `newValue`, preserving the line's
+    /// original indentation and any trailing comment.
+    private static func replacingScalarValue(_ line: String, key: String, newValue: String, suffix: String = "") -> String {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        return "\(indent)\(key): \(newValue)\(suffix)"
+    }
+
     /// Patch the on-disk config.yaml to disable geo data downloads, which would
     /// block the Network Extension during startup. Safe to call on every launch.
     func sanitizeConfig() {
@@ -324,13 +386,15 @@ final class ConfigManager {
                 inTunBlock = trimmed.hasPrefix("tun:")
             }
             // Disable TUN mode — transparent proxy intercepts at socket level, no TUN needed
-            if inTunBlock && trimmed.hasPrefix("enable:") {
-                return line.replacingOccurrences(of: "enable: true", with: "enable: false")
+            if inTunBlock && trimmed.hasPrefix("enable:"), let suffix = Self.truthySuffix(trimmed, key: "enable") {
+                return Self.replacingScalarValue(line, key: "enable", newValue: "false", suffix: suffix)
             }
             // Disable automatic geo database updates
             if trimmed.hasPrefix("geo-auto-update:") {
                 hasGeoAutoUpdate = true
-                return line.replacingOccurrences(of: "geo-auto-update: true", with: "geo-auto-update: false")
+                if let suffix = Self.truthySuffix(trimmed, key: "geo-auto-update") {
+                    return Self.replacingScalarValue(line, key: "geo-auto-update", newValue: "false", suffix: suffix)
+                }
             }
             return line
         }
@@ -351,10 +415,11 @@ final class ConfigManager {
     }
 
     /// Sanitize a config string in-place (same rules as sanitizeConfig but on a String).
+    /// Idempotent: re-running on an already-sanitized config is a no-op, since
+    /// `saveConfig` calls this unconditionally on every write.
     static func sanitizeConfigString(_ config: inout String) {
-        config = config
-            .replacingOccurrences(of: "geo-auto-update: true", with: "geo-auto-update: false")
-        // Disable TUN — transparent proxy intercepts at socket level.
+        // Disable TUN and geo-auto-update — transparent proxy intercepts at
+        // socket level, and geo downloads would block tunnel startup.
         var lines = config.components(separatedBy: "\n")
         var inTunBlock = false
         lines = lines.map { line in
@@ -362,8 +427,11 @@ final class ConfigManager {
             if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
                 inTunBlock = trimmed.hasPrefix("tun:")
             }
-            if inTunBlock && trimmed.hasPrefix("enable:") {
-                return line.replacingOccurrences(of: "enable: true", with: "enable: false")
+            if inTunBlock && trimmed.hasPrefix("enable:"), let suffix = truthySuffix(trimmed, key: "enable") {
+                return replacingScalarValue(line, key: "enable", newValue: "false", suffix: suffix)
+            }
+            if trimmed.hasPrefix("geo-auto-update:"), let suffix = truthySuffix(trimmed, key: "geo-auto-update") {
+                return replacingScalarValue(line, key: "geo-auto-update", newValue: "false", suffix: suffix)
             }
             return line
         }
@@ -454,7 +522,9 @@ final class ConfigManager {
     /// Returns nil if valid, or an error message string if invalid.
     func validateSubscriptionConfig(_ yaml: String) -> String? {
         let merged = mergeSubscription(yaml)
-        AppLogger.config.notice("merged config length: \(merged.count), preview: \(String(merged.prefix(300)), privacy: .public)")
+        // Do not log config content here — it can contain plaintext proxy
+        // passwords/UUIDs from the subscription's proxies section.
+        AppLogger.config.notice("merged config length: \(merged.count)")
 
         // The engine needs HomeDir set so it can find geodata files
         // (Country.mmdb, geosite.dat) when validating GEOIP/GEOSITE rules.
@@ -498,8 +568,8 @@ final class ConfigManager {
         result += "\n\n" + (sub["proxies"] ?? "proxies: []")
         result += "\n\n" + (sub["proxy-groups"] ?? "proxy-groups: []")
 
-        if let pp = sub["proxy-providers"] { result += "\n\n" + Self.disableProviderRefresh(pp) }
-        if let rp = sub["rule-providers"] { result += "\n\n" + Self.disableProviderRefresh(rp) }
+        if let pp = sub["proxy-providers"] { result += "\n\n" + Self.disableProviderRefresh(Self.sanitizeProviders(pp)) }
+        if let rp = sub["rule-providers"] { result += "\n\n" + Self.disableProviderRefresh(Self.sanitizeProviders(rp)) }
 
         let defaultRules = extractYAMLSections(from: defaultConfig, named: ["rules"])
         result += "\n\n" + (sub["rules"] ?? defaultRules["rules"] ?? "rules:\n  - MATCH,DIRECT")
@@ -517,6 +587,100 @@ final class ConfigManager {
             }
             return line
         }.joined(separator: "\n")
+    }
+
+    /// Validate/sanitize subscription-controlled provider entries
+    /// (proxy-providers / rule-providers) before they're merged into
+    /// config.yaml. Subscriptions are untrusted input:
+    ///  - a provider whose `url:` scheme isn't https is dropped entirely, so
+    ///    a malicious subscription can't point mihomo at a `file://` path (
+    ///    local file exfiltration) or a plaintext `http://` endpoint;
+    ///  - a provider whose `path:` tries to escape the app's config
+    ///    directory (contains `..`, or is an absolute/home-relative path)
+    ///    has its path rewritten to a safe basename under the config dir
+    ///    instead of being honored verbatim, so it can't be used to read or
+    ///    overwrite arbitrary files on disk.
+    /// This manipulates provider YAML as text (matching the rest of this
+    /// file's line-based approach, not a parsed tree), so it only
+    /// special-cases the `url:`/`path:` keys and otherwise passes provider
+    /// blocks through untouched. Valid providers are preserved as-is.
+    static func sanitizeProviders(_ section: String) -> String {
+        var lines = section.components(separatedBy: "\n")
+        guard lines.count > 1 else { return section }
+        let header = lines.removeFirst()
+
+        // The indentation of the first provider-name line (e.g. 2 spaces)
+        // marks the start of each subsequent provider entry.
+        guard let baseIndent = lines
+            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+            .map({ line in line.prefix(while: { $0 == " " }).count })
+        else {
+            return section
+        }
+
+        func isBlockStart(_ line: String) -> Bool {
+            let indent = line.prefix(while: { $0 == " " }).count
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return indent == baseIndent && !trimmed.isEmpty && trimmed.hasSuffix(":")
+        }
+
+        var blocks: [[String]] = []
+        var current: [String] = []
+        for line in lines {
+            if isBlockStart(line) {
+                if !current.isEmpty { blocks.append(current) }
+                current = [line]
+            } else {
+                current.append(line)
+            }
+        }
+        if !current.isEmpty { blocks.append(current) }
+
+        let kept = blocks.compactMap { sanitizeProviderBlock($0) }
+        guard !kept.isEmpty else { return header }
+        return ([header] + kept.flatMap { $0 }).joined(separator: "\n")
+    }
+
+    /// Returns the (possibly rewritten) lines of a single provider block, or
+    /// nil if the whole block should be dropped (non-https `url:`).
+    private static func sanitizeProviderBlock(_ block: [String]) -> [String]? {
+        var result: [String] = []
+        for line in block {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("url:") {
+                let value = scalarValue(afterKey: "url", in: line)
+                guard value.lowercased().hasPrefix("https://") else { return nil }
+                result.append(line)
+                continue
+            }
+            if trimmed.hasPrefix("path:") {
+                let value = scalarValue(afterKey: "path", in: line)
+                if value.contains("..") || value.hasPrefix("/") || value.hasPrefix("~") {
+                    let indent = line.prefix { $0 == " " || $0 == "\t" }
+                    var safeName = (value as NSString).lastPathComponent
+                        .replacingOccurrences(of: "..", with: "_")
+                    if safeName.isEmpty || safeName == "/" {
+                        safeName = "provider.yaml"
+                    }
+                    result.append("\(indent)path: \(yamlQuotedString(safeName))")
+                    continue
+                }
+            }
+            result.append(line)
+        }
+        return result
+    }
+
+    /// Extracts the scalar value of `key:` from a raw config line, matching
+    /// `rewriteServerLine`'s indentation- and quote-aware parsing.
+    private static func scalarValue(afterKey key: String, in line: String) -> String {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let rest = line.dropFirst(indent.count)
+        guard rest.hasPrefix("\(key):") else { return "" }
+        let afterColon = rest.dropFirst("\(key):".count)
+        let valueStart = afterColon.prefix { $0 == " " || $0 == "\t" }
+        let valueAndComment = String(afterColon.dropFirst(valueStart.count))
+        return parseYAMLScalarWithComment(valueAndComment).value
     }
 
     private static func yamlQuotedString(_ s: String) -> String {

@@ -103,13 +103,22 @@ pub fn test_selected_proxy(api_addr: &str) -> String {
         return "FAIL: api addr is null".to_string();
     }
     let base = format!("http://{api_addr}");
+    let secret = crate::current_controller_secret();
     crate::runtime().block_on(async move {
         let client = match reqwest::Client::builder().timeout(IO_TIMEOUT).build() {
             Ok(c) => c,
             Err(e) => return format!("FAIL: build client: {e}"),
         };
+        // Attach the controller's Bearer secret (matches the Swift REST
+        // clients); the controller rejects unauthenticated calls when a
+        // secret is configured.
+        let auth = |req: reqwest::RequestBuilder| match &secret {
+            Some(s) => req.bearer_auth(s),
+            None => req,
+        };
 
-        let top: serde_json::Value = match client.get(format!("{base}/proxies")).send().await {
+        let top: serde_json::Value = match auth(client.get(format!("{base}/proxies"))).send().await
+        {
             Ok(r) => match r.json().await {
                 Ok(v) => v,
                 Err(e) => return format!("FAIL: decode /proxies: {e}"),
@@ -149,8 +158,7 @@ pub fn test_selected_proxy(api_addr: &str) -> String {
             .to_string();
 
         let delay_url = format!("{base}/proxies/{}/delay", encode_path_segment(&selected));
-        let delay: serde_json::Value = match client
-            .get(&delay_url)
+        let delay: serde_json::Value = match auth(client.get(&delay_url))
             .query(&[
                 ("url", "http://www.gstatic.com/generate_204"),
                 ("timeout", "5000"),

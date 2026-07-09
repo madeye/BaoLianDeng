@@ -102,19 +102,37 @@ enum SOCKS5Client {
 
     static func readSome(connection: NWConnection) async throws -> Data {
         try await withCheckedThrowingContinuation { cont in
-            connection.receive(
-                minimumIncompleteLength: 1,
-                maximumLength: 65536
-            ) { data, _, isComplete, error in
-                if let error = error {
-                    cont.resume(throwing: error)
-                } else if let data = data, !data.isEmpty {
-                    cont.resume(returning: data)
-                } else if isComplete {
-                    cont.resume(returning: Data())
-                } else {
-                    cont.resume(returning: Data())
-                }
+            readSomeLoop(connection: connection, cont: cont)
+        }
+    }
+
+    /// Callback body for `readSome`, split out so the "no data yet" case can
+    /// re-arm the receive instead of resolving the continuation (#75). Only
+    /// `isComplete` (remote closed) or an error end the stream; callers such
+    /// as `relayTCP` treat an empty `Data()` result as "connection closed,"
+    /// so returning empty for a healthy connection with nothing to deliver
+    /// yet would end the relay prematurely.
+    private static func readSomeLoop(
+        connection: NWConnection,
+        cont: CheckedContinuation<Data, Error>
+    ) {
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 65536
+        ) { data, _, isComplete, error in
+            if let error = error {
+                cont.resume(throwing: error)
+            } else if let data = data, !data.isEmpty {
+                cont.resume(returning: data)
+            } else if isComplete {
+                // Genuine remote close / end-of-stream.
+                cont.resume(returning: Data())
+            } else {
+                // No data, no error, not complete. `receive` with
+                // minimumIncompleteLength: 1 shouldn't invoke the callback in
+                // this shape, but if it ever does, keep waiting rather than
+                // reporting a false end-of-stream.
+                readSomeLoop(connection: connection, cont: cont)
             }
         }
     }
