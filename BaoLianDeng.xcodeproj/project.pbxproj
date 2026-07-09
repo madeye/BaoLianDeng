@@ -69,6 +69,7 @@
 		T10033 /* MihomoCoreIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10032 /* MihomoCoreIntegrationTests.swift */; };
 		T10035 /* MihomoAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10034 /* MihomoAPITests.swift */; };
 		T10041 /* ProxyEngineIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10040 /* ProxyEngineIntegrationTests.swift */; };
+		T10053 /* ProxyGroupsViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10052 /* ProxyGroupsViewModelTests.swift */; };
 		T10045 /* TestConfigs.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10044 /* TestConfigs.swift */; };
 		T10047 /* ProxyEngineHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10046 /* ProxyEngineHelper.swift */; };
 		GEO002 /* Country.mmdb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* Country.mmdb */; };
@@ -195,6 +196,7 @@
 		T10032 /* MihomoCoreIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoCoreIntegrationTests.swift; sourceTree = "<group>"; };
 		T10034 /* MihomoAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MihomoAPITests.swift; sourceTree = "<group>"; };
 		T10040 /* ProxyEngineIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineIntegrationTests.swift; sourceTree = "<group>"; };
+		T10052 /* ProxyGroupsViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyGroupsViewModelTests.swift; sourceTree = "<group>"; };
 		T10044 /* TestConfigs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestConfigs.swift; sourceTree = "<group>"; };
 		T10046 /* ProxyEngineHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineHelper.swift; sourceTree = "<group>"; };
 		GEO001 /* Country.mmdb */ = {isa = PBXFileReference; lastKnownFileType = file; path = Country.mmdb; sourceTree = "<group>"; };
@@ -409,6 +411,7 @@
 				T10032 /* MihomoCoreIntegrationTests.swift */,
 				T10034 /* MihomoAPITests.swift */,
 				T10040 /* ProxyEngineIntegrationTests.swift */,
+				T10052 /* ProxyGroupsViewModelTests.swift */,
 			);
 			path = BaoLianDengTests;
 			sourceTree = "<group>";
@@ -656,6 +659,7 @@
 				T10033 /* MihomoCoreIntegrationTests.swift in Sources */,
 				T10035 /* MihomoAPITests.swift in Sources */,
 				T10041 /* ProxyEngineIntegrationTests.swift in Sources */,
+				T10053 /* ProxyGroupsViewModelTests.swift in Sources */,
 				T10045 /* TestConfigs.swift in Sources */,
 				T10047 /* ProxyEngineHelper.swift in Sources */,
 			);

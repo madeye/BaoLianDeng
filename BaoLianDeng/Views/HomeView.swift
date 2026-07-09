@@ -124,11 +124,12 @@ struct HomeView: View {
         }
         .onChange(of: vpnManager.isConnected) { _, isConnected in
             if isConnected {
-                // Reload proxy groups from API when VPN connects
-                loadProxyGroups()
-                // Replay saved selections to the engine
                 Task {
+                    // The engine resets every group to its config default on
+                    // restart — push saved selections back first, then read
+                    // group state so `now` reflects the restored choices.
                     await proxyGroupsVM.replaySelectionsToEngine()
+                    loadProxyGroups()
                 }
             }
         }

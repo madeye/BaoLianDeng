@@ -55,10 +55,8 @@ final class ProxyGroupsViewModel {
                 }
             }
 
-            // Initialize selections from current group state
-            for group in groups {
-                selections[group.name] = group.now
-            }
+            // Merge group state into selections, preserving valid saved choices
+            mergeLoadedGroups(groups)
         } catch {
             // Engine unreachable (typically VPN off). Fall back to YAML parsing.
             isOffline = true
@@ -68,9 +66,7 @@ final class ProxyGroupsViewModel {
                 if !parsed.groups.isEmpty {
                     groups = parsed.groups.values.sorted { $0.name < $1.name }
                     proxies = parsed.proxies
-                    for group in groups {
-                        selections[group.name] = group.now
-                    }
+                    mergeLoadedGroups(groups)
                 }
             }
 
@@ -129,6 +125,45 @@ final class ProxyGroupsViewModel {
         }
 
         testingGroups.remove(group)
+    }
+
+    // MARK: - Selection Merging
+
+    /// Merge freshly loaded group state into `selections`. A saved selection
+    /// survives as long as the group still contains it — the engine resets to
+    /// the config's first node on every tunnel restart, so `group.now` must
+    /// not clobber a valid user choice (issue #56).
+    private func mergeLoadedGroups(_ groups: [MihomoProxyGroup]) {
+        let merged = Self.mergedSelections(selections, groups: groups)
+        if merged != selections {
+            selections = merged
+            saveSelections()
+        }
+    }
+
+    /// Pure core of `mergeLoadedGroups`, separated for unit testing.
+    ///
+    /// Only `Selector` groups carry user choices. Engine-managed groups
+    /// (URLTest, Fallback, LoadBalance, Relay) are dropped from `selections`
+    /// so the UI always falls back to the live `group.now` and
+    /// `replaySelectionsToEngine()` never pins them. Groups absent from the
+    /// loaded config (e.g. another subscription's) are left untouched.
+    static func mergedSelections(
+        _ existing: [String: String],
+        groups: [MihomoProxyGroup]
+    ) -> [String: String] {
+        var result = existing
+        for group in groups {
+            guard group.type == "Selector" else {
+                result[group.name] = nil
+                continue
+            }
+            if let current = existing[group.name], group.all.contains(current) {
+                continue
+            }
+            result[group.name] = group.now
+        }
+        return result
     }
 
     // MARK: - Persistence
