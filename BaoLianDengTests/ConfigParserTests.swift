@@ -503,6 +503,123 @@ struct SanitizeConfigStringTests {
     }
 }
 
+// MARK: - Provider sanitization (untrusted subscription input)
+
+@Suite("sanitizeProviders")
+struct SanitizeProvidersTests {
+
+    @Test("Preserves a valid https provider with a safe relative path")
+    func preservesValidProvider() {
+        let section = """
+        proxy-providers:
+          provider1:
+            type: http
+            url: https://example.com/sub.yaml
+            path: ./providers/provider1.yaml
+            interval: 3600
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(result.contains("provider1:"))
+        #expect(result.contains("url: https://example.com/sub.yaml"))
+        // A safe relative path (no `..`, not absolute/home) is left untouched.
+        #expect(result.contains("path: ./providers/provider1.yaml"))
+        #expect(result.contains("interval: 3600"))
+    }
+
+    @Test("Drops a provider whose url scheme isn't https")
+    func dropsNonHttpsUrl() {
+        let section = """
+        proxy-providers:
+          bad:
+            type: http
+            url: http://evil.com/sub.yaml
+            path: ./providers/bad.yaml
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(!result.contains("evil.com"))
+        #expect(!result.contains("bad:"))
+        // Only the (now childless) section header remains.
+        #expect(result.contains("proxy-providers:"))
+    }
+
+    @Test("Drops a provider with a file:// url")
+    func dropsFileUrl() {
+        let section = """
+        proxy-providers:
+          exfil:
+            url: file:///etc/passwd
+            path: ./providers/exfil.yaml
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(!result.contains("file://"))
+        #expect(!result.contains("exfil"))
+    }
+
+    @Test("Rewrites a path-traversal path to a safe basename")
+    func rewritesPathTraversal() {
+        let section = """
+        proxy-providers:
+          trav:
+            url: https://example.com/sub.yaml
+            path: ../../Library/LaunchAgents/evil.plist
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        // Provider survives (url is https) but the escaping path is neutralized.
+        #expect(result.contains("trav:"))
+        #expect(result.contains("url: https://example.com/sub.yaml"))
+        #expect(!result.contains(".."))
+        #expect(!result.contains("LaunchAgents"))
+        #expect(result.contains("path: \"evil.plist\""))
+    }
+
+    @Test("Rewrites an absolute path to a safe basename")
+    func rewritesAbsolutePath() {
+        let section = """
+        proxy-providers:
+          abs:
+            url: https://example.com/sub.yaml
+            path: /Library/LaunchAgents/x.plist
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(result.contains("abs:"))
+        #expect(!result.contains("/Library/LaunchAgents"))
+        #expect(result.contains("path: \"x.plist\""))
+    }
+
+    @Test("Keeps the good provider and drops the malicious one")
+    func keepsGoodDropsBad() {
+        let section = """
+        proxy-providers:
+          good:
+            url: https://example.com/good.yaml
+            path: ./providers/good.yaml
+          bad:
+            url: http://attacker/steal
+            path: ./providers/bad.yaml
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(result.contains("good:"))
+        #expect(result.contains("https://example.com/good.yaml"))
+        #expect(!result.contains("attacker"))
+        #expect(!result.contains("bad:"))
+    }
+
+    @Test("Applies to rule-providers sections too")
+    func sanitizesRuleProviders() {
+        let section = """
+        rule-providers:
+          rules1:
+            type: http
+            url: http://insecure/rules.yaml
+            path: ./ruleset/rules1.yaml
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(!result.contains("insecure"))
+        #expect(!result.contains("rules1:"))
+        #expect(result.contains("rule-providers:"))
+    }
+}
+
 // MARK: - Config Scalar Updates
 
 @Suite("Config top-level scalar replacement")
