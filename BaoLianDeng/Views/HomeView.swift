@@ -416,7 +416,7 @@ struct HomeView: View {
                 defer { if wasConnected { vpnManager.start() } }
                 do {
                     let result = try await fetchSubscription(from: url)
-                    if let validationError = ConfigManager.shared.validateSubscriptionConfig(result.raw) {
+                    if let validationError = await ConfigManager.shared.validateSubscriptionConfigDetached(result.raw) {
                         displayToast(String(format: String(localized: "Invalid: %@"), validationError))
                         AppLogger.ui.error("Validation failed for \(name, privacy: .public): \(validationError, privacy: .public)")
                         return
@@ -480,17 +480,21 @@ struct HomeView: View {
             defer { url.stopAccessingSecurityScopedResource() }
             do {
                 let yaml = try String(contentsOf: url, encoding: .utf8)
-                if let validationError = ConfigManager.shared.validateSubscriptionConfig(yaml) {
-                    displayToast(String(format: String(localized: "Invalid: %@"), validationError))
-                    return
-                }
-                let nodes = SubscriptionParser.parse(yaml)
                 let name = url.deletingPathExtension().lastPathComponent
-                let sub = Subscription(name: name, url: "", nodes: nodes, rawContent: yaml)
-                subscriptions.append(sub)
-                saveSubscriptions()
-                selectSubscription(sub)
-                displayToast(String(format: String(localized: "Imported %@ (%lld nodes)"), name, nodes.count))
+                // Validate off the calling (main) thread — engine parsing can
+                // take seconds on large configs.
+                Task {
+                    if let validationError = await ConfigManager.shared.validateSubscriptionConfigDetached(yaml) {
+                        displayToast(String(format: String(localized: "Invalid: %@"), validationError))
+                        return
+                    }
+                    let nodes = SubscriptionParser.parse(yaml)
+                    let sub = Subscription(name: name, url: "", nodes: nodes, rawContent: yaml)
+                    subscriptions.append(sub)
+                    saveSubscriptions()
+                    selectSubscription(sub)
+                    displayToast(String(format: String(localized: "Imported %@ (%lld nodes)"), name, nodes.count))
+                }
             } catch {
                 displayToast(String(format: String(localized: "Failed to read file: %@"), error.localizedDescription))
             }
@@ -519,7 +523,7 @@ struct HomeView: View {
             defer { if wasConnected { vpnManager.start() } }
             do {
                 let result = try await fetchSubscription(from: url)
-                if let validationError = ConfigManager.shared.validateSubscriptionConfig(result.raw) {
+                if let validationError = await ConfigManager.shared.validateSubscriptionConfigDetached(result.raw) {
                     if let i = subscriptions.firstIndex(where: { $0.id == id }) {
                         subscriptions[i].isUpdating = false
                     }
@@ -568,7 +572,7 @@ struct HomeView: View {
             for await (i, result) in group {
                 switch result {
                 case .success(let fetched):
-                    if let validationError = ConfigManager.shared.validateSubscriptionConfig(fetched.raw) {
+                    if let validationError = await ConfigManager.shared.validateSubscriptionConfigDetached(fetched.raw) {
                         failed.append((subscriptions[i].name, "Invalid config: \(validationError)"))
                     } else {
                         subscriptions[i].nodes = fetched.nodes

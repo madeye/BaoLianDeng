@@ -518,8 +518,24 @@ final class ConfigManager {
         }
     }
 
+    /// Off-main wrapper for `validateSubscriptionConfig`. SwiftUI views are
+    /// MainActor, so a plain `Task {}` in a view runs on the main thread —
+    /// and validation is synchronous engine work plus (worst case) bounded
+    /// geodata downloads in `ensureGeodataFiles`. Running it detached keeps
+    /// the UI responsive during subscription updates (the 6.0 feedback hang:
+    /// "更新配置文件无反应，只能强制退出").
+    func validateSubscriptionConfigDetached(_ yaml: String) async -> String? {
+        await Task.detached(priority: .userInitiated) {
+            ConfigManager.shared.validateSubscriptionConfig(yaml)
+        }.value
+    }
+
     /// Validate a subscription YAML by merging it with the base config and running Mihomo's parser.
     /// Returns nil if valid, or an error message string if invalid.
+    /// The bridge validates offline (provider sections are stripped in
+    /// meow-ffi before parsing), so this never blocks on network fetches —
+    /// but it can still take seconds; prefer `validateSubscriptionConfigDetached`
+    /// from UI code.
     func validateSubscriptionConfig(_ yaml: String) -> String? {
         let merged = mergeSubscription(yaml)
         // Do not log config content here — it can contain plaintext proxy

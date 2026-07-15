@@ -23,6 +23,7 @@ mod logging;
 
 use engine::EngineState;
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -209,8 +210,14 @@ pub unsafe extern "C" fn bridge_update_log_level(level: *const c_char) {
 /// meow-config only *warns* on rules that reference an undefined proxy/group.
 /// The Swift tests require validation to reject them with the offending name in
 /// the message, so cross-check every rule's target against the built proxy map
-/// (which contains DIRECT/REJECT plus all proxies and groups).
-fn undefined_rule_target(config: &meow_config::Config) -> Option<String> {
+/// (which contains DIRECT/REJECT plus all proxies and groups). `also_allowed`
+/// holds group names that could not be built because validation stripped their
+/// providers (see `strip_providers_for_validation`) — they exist at runtime, so
+/// rules naming them are fine.
+fn undefined_rule_target(
+    config: &meow_config::Config,
+    also_allowed: &HashSet<String>,
+) -> Option<String> {
     const BUILTIN: &[&str] = &[
         "DIRECT",
         "REJECT",
@@ -224,11 +231,75 @@ fn undefined_rule_target(config: &meow_config::Config) -> Option<String> {
         if BUILTIN.contains(&target) {
             continue;
         }
-        if !config.proxies.keys().any(|k| k.as_str() == target) {
+        if !config.proxies.keys().any(|k| k.as_str() == target) && !also_allowed.contains(target) {
             return Some(target.to_string());
         }
     }
     None
+}
+
+/// Strip `proxy-providers` / `rule-providers` from a config before validation.
+///
+/// `load_config_from_str` fetches every HTTP provider at load time: proxy-
+/// providers via reqwest (30 s timeout each, sequential) and rule-providers
+/// dialed through the config's FIRST PROXY with no connect timeout. The app
+/// validates right after deliberately disconnecting the VPN, so those fetches
+/// can stall for minutes and wedge the update flow (App Store feedback:
+/// "更新配置文件无反应，只能强制退出"). The engine itself treats provider load
+/// failures as warn-and-skip, so validating without providers checks the same
+/// hard errors while staying fully offline.
+///
+/// Returns the stripped YAML plus the names of groups that reference a
+/// stripped provider (`use:` / `include-all:`). Those groups may fail to
+/// build without their providers (zero members), so `undefined_rule_target`
+/// must still accept rules that target them. When the config has no provider
+/// sections the original text is returned untouched and the set is empty —
+/// group/rule validation stays as strict as before.
+fn strip_providers_for_validation(yaml: &str) -> Option<(String, HashSet<String>)> {
+    let mut doc: serde_yaml::Value = serde_yaml::from_str(yaml).ok()?;
+    // Expand `<<: *anchor` merge keys so `name:`/`use:` supplied via anchors
+    // (common in airport configs) are visible below. load_config_from_str
+    // applies the same expansion, so re-serializing the expanded form is
+    // semantically identical.
+    doc.apply_merge().ok()?;
+    let map = doc.as_mapping_mut()?;
+
+    let mut provider_names: HashSet<String> = HashSet::new();
+    for key in ["proxy-providers", "rule-providers"] {
+        if let Some(section) = map.remove(key) {
+            if let Some(m) = section.as_mapping() {
+                provider_names.extend(m.keys().filter_map(|k| k.as_str().map(str::to_string)));
+            }
+        }
+    }
+    if provider_names.is_empty() {
+        return Some((yaml.to_string(), HashSet::new()));
+    }
+
+    let mut provider_backed_groups: HashSet<String> = HashSet::new();
+    if let Some(groups) = map.get("proxy-groups").and_then(|v| v.as_sequence()) {
+        for g in groups {
+            let uses_stripped = g
+                .get("use")
+                .and_then(|u| u.as_sequence())
+                .is_some_and(|uses| {
+                    uses.iter()
+                        .filter_map(|u| u.as_str())
+                        .any(|u| provider_names.contains(u))
+                })
+                || g.get("include-all")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+            if uses_stripped {
+                if let Some(name) = g.get("name").and_then(|n| n.as_str()) {
+                    provider_backed_groups.insert(name.to_string());
+                }
+            }
+        }
+    }
+
+    let stripped = serde_yaml::to_string(&doc).ok()?;
+    Some((stripped, provider_backed_groups))
 }
 
 #[no_mangle]
@@ -246,9 +317,14 @@ pub unsafe extern "C" fn bridge_validate_config(yaml: *const c_char) -> i32 {
             Some(home) => geodata::pin_geodata_paths(&y, home),
             None => y.clone(),
         };
-        match runtime().block_on(meow_config::load_config_from_str(&pinned)) {
+        // Validate offline: never let provider HTTP fetches block validation.
+        // If stripping fails (e.g. the YAML doesn't even parse), validate the
+        // original text so load_config_from_str reports the real error.
+        let (to_validate, provider_groups) = strip_providers_for_validation(&pinned)
+            .unwrap_or_else(|| (pinned.clone(), HashSet::new()));
+        match runtime().block_on(meow_config::load_config_from_str(&to_validate)) {
             Ok(config) => {
-                if let Some(bad) = undefined_rule_target(&config) {
+                if let Some(bad) = undefined_rule_target(&config, &provider_groups) {
                     set_error(format!(
                         "rules: reference to undefined proxy or group '{bad}'"
                     ));
@@ -539,6 +615,134 @@ rules:
     #[test]
     fn rejects_invalid_yaml() {
         assert_eq!(validate("proxies: [[[invalid yaml\n"), -1);
+    }
+
+    // Regression: validation must be OFFLINE. Before the strip, this config
+    // made load_config_from_str fetch the rule-provider through the config's
+    // first proxy (unreachable → no connect timeout → the app's update flow
+    // hung until force quit) and the proxy-provider via HTTP (30 s stall).
+    // The URLs point at a TEST-NET-1 black hole, so if provider fetching ever
+    // sneaks back into validation this test hangs/fails instead of passing.
+    const PROVIDER_CFG: &str = "\
+mode: rule
+proxies:
+  - name: \"node1\"
+    type: ss
+    server: 192.0.2.1
+    port: 8388
+    cipher: aes-128-gcm
+    password: x
+proxy-providers:
+  airport:
+    type: http
+    url: \"https://192.0.2.1/sub.yaml\"
+    path: ./airport.yaml
+    interval: 0
+rule-providers:
+  ads:
+    type: http
+    behavior: domain
+    url: \"https://192.0.2.1/ads.yaml\"
+    path: ./ads.yaml
+    interval: 0
+proxy-groups:
+  - name: PROXY
+    type: select
+    use:
+      - airport
+  - name: AUTO
+    type: url-test
+    include-all: true
+rules:
+  - RULE-SET,ads,REJECT
+  - DOMAIN-SUFFIX,google.com,PROXY
+  - DOMAIN-SUFFIX,github.com,AUTO
+  - MATCH,node1
+";
+
+    #[test]
+    fn validates_provider_config_offline() {
+        let _g = TEST_LOCK.lock();
+        let start = std::time::Instant::now();
+        let rc = validate(PROVIDER_CFG);
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, 0, "provider config failed validation: {err}");
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "validation took {:?} — provider fetch is back on the validate path",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn provider_config_still_rejects_undefined_rule_target() {
+        let _g = TEST_LOCK.lock();
+        let yaml = PROVIDER_CFG.replace("MATCH,node1", "MATCH,NOSUCH");
+        assert_eq!(validate(&yaml), -1);
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("NOSUCH"), "error was: {err}");
+    }
+
+    // A `use:` reference to a provider that is not defined anywhere is a
+    // genuinely broken config — stripping must not paper over it.
+    #[test]
+    fn rejects_group_using_undefined_provider() {
+        let _g = TEST_LOCK.lock();
+        let yaml = "\
+mode: rule
+proxies: []
+proxy-groups:
+  - name: PROXY
+    type: select
+    use:
+      - nonexistent
+rules:
+  - MATCH,PROXY
+";
+        assert_eq!(validate(yaml), -1);
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("PROXY"), "error was: {err}");
+    }
+
+    // Merge keys (`<<: *anchor`) must survive the provider strip — airport
+    // configs commonly share group fields through anchors.
+    #[test]
+    fn validates_provider_config_with_merge_keys() {
+        let _g = TEST_LOCK.lock();
+        let yaml = "\
+mode: rule
+group-common: &common
+  type: select
+  use:
+    - airport
+proxies: []
+proxy-providers:
+  airport:
+    type: http
+    url: \"https://192.0.2.1/sub.yaml\"
+    path: ./airport.yaml
+    interval: 0
+proxy-groups:
+  - <<: *common
+    name: PROXY
+rules:
+  - MATCH,PROXY
+";
+        let rc = validate(yaml);
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, 0, "anchor-based provider config failed: {err}");
     }
 
     #[test]
