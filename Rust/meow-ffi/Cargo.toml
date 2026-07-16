@@ -3,7 +3,7 @@ name = "meow-ffi"
 version = "0.17.0"
 edition = "2021"
 rust-version = "1.89"
-license = "GPL-3.0"
+license = "MIT"
 description = "C FFI bridge embedding the meow-rs proxy kernel for BaoLianDeng."
 publish = false
 
