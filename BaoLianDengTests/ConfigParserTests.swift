@@ -236,6 +236,197 @@ struct MergeSubscriptionTests {
     }
 }
 
+// MARK: - Proxy-Routed DNS Retargeting
+
+@Suite("retargetProxiedNameservers")
+struct RetargetProxiedNameserversTests {
+
+    static let taggedBase = """
+    mixed-port: 7890
+    mode: rule
+    dns:
+      enable: true
+      default-nameserver:
+        - 223.5.5.5
+      nameserver:
+        - 'tcp://1.1.1.1:53#PROXY'
+        - 'tcp://8.8.8.8:53#PROXY'
+    proxies: []
+    proxy-groups:
+      - name: PROXY
+        type: select
+        proxies: []
+    rules:
+      - MATCH,PROXY
+    """
+
+    @Test("Merge retargets #PROXY to the subscription's first select group")
+    func retargetsToFirstSelectGroup() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: '🚀 节点选择'
+            type: select
+            proxies:
+              - node
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
+        )
+        #expect(merged.contains("- 'tcp://1.1.1.1:53#🚀 节点选择'"))
+        #expect(merged.contains("- 'tcp://8.8.8.8:53#🚀 节点选择'"))
+        #expect(!merged.contains("#PROXY'"))
+    }
+
+    @Test("Non-select groups are skipped in favor of the first select group")
+    func prefersSelectOverAutoGroups() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Auto
+            type: url-test
+            url: http://www.gstatic.com/generate_204
+            interval: 300
+            proxies:
+              - node
+          - name: Manual
+            type: select
+            proxies:
+              - node
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
+        )
+        #expect(merged.contains("- 'tcp://1.1.1.1:53#Manual'"))
+    }
+
+    @Test("Falls back to first group when subscription has no select group")
+    func fallsBackToFirstGroup() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Auto
+            type: url-test
+            url: http://www.gstatic.com/generate_204
+            interval: 300
+            proxies:
+              - node
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
+        )
+        #expect(merged.contains("- 'tcp://1.1.1.1:53#Auto'"))
+    }
+
+    @Test("Strips tag when subscription defines no proxy-groups")
+    func stripsTagWithoutGroups() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
+        )
+        #expect(merged.contains("- 'tcp://1.1.1.1:53'"))
+        #expect(merged.contains("- 'tcp://8.8.8.8:53'"))
+        #expect(!merged.contains("#PROXY"))
+    }
+
+    @Test("default-nameserver entries are never tagged")
+    func defaultNameserverUntouched() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Group
+            type: select
+            proxies:
+              - node
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
+        )
+        #expect(merged.contains("- 223.5.5.5"))
+        #expect(!merged.contains("223.5.5.5#"))
+    }
+
+    @Test("Re-merge retargets a previously retargeted header")
+    func remergeRetargetsStaleTag() {
+        let firstSub = """
+        proxies:
+          - {name: a, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: OldGroup
+            type: select
+            proxies:
+              - a
+        """
+        let secondSub = """
+        proxies:
+          - {name: b, type: vless, server: 5.6.7.8, port: 443}
+        proxy-groups:
+          - name: NewGroup
+            type: select
+            proxies:
+              - b
+        """
+        let first = ConfigManager.mergeSubscription(
+            firstSub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
+        )
+        // Second merge uses the first merge's output as base, the same way
+        // applySelectedSubscription reuses the on-disk config as base.
+        let second = ConfigManager.mergeSubscription(
+            secondSub, baseConfig: first, defaultConfig: Self.taggedBase
+        )
+        #expect(second.contains("- 'tcp://1.1.1.1:53#NewGroup'"))
+        #expect(!second.contains("OldGroup'"))
+    }
+
+    @Test("tls:// nameserver fragments (SNI) are left untouched")
+    func tlsSNIFragmentUntouched() {
+        let base = """
+        dns:
+          enable: true
+          nameserver:
+            - 'tls://1.1.1.1:853#cloudflare-dns.com'
+        proxies: []
+        """
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Group
+            type: select
+            proxies:
+              - node
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: base, defaultConfig: base
+        )
+        #expect(merged.contains("- 'tls://1.1.1.1:853#cloudflare-dns.com'"))
+    }
+
+    @Test("Group names containing single quotes are YAML-escaped")
+    func escapesSingleQuotesInGroupName() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: "It's Fast"
+            type: select
+            proxies:
+              - node
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
+        )
+        #expect(merged.contains("- 'tcp://1.1.1.1:53#It''s Fast'"))
+    }
+}
+
 @Suite("Proxy group serialization")
 struct ProxyGroupSerializationTests {
 
