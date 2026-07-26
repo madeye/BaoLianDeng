@@ -35,7 +35,7 @@ macOS VPN proxy app powered by [meow-rs](https://github.com/madeye/meow-rs), a C
 │  │    ┌──────────────────────────────┐   │  │
 │  │    │MihomoCore.xcframework (Rust) │   │  │
 │  │    │  - Proxy Engine              │   │  │
-│  │    │  - DNS (redir-host)          │   │  │
+│  │    │  - DNS (fake-ip)             │   │  │
 │  │    │  - Rules / Routing           │   │  │
 │  │    └──────────────────────────────┘   │  │
 │  └───────────────────────────────────────┘  │

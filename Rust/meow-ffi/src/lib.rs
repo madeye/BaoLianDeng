@@ -581,7 +581,8 @@ mode: rule
 dns:
   enable: true
   listen: 127.0.0.1:1053
-  enhanced-mode: redir-host
+  enhanced-mode: fake-ip
+  fake-ip-range: 28.0.0.0/8
   nameserver:
     - 127.0.0.1:5353
 proxies: []
@@ -763,7 +764,7 @@ rules:
     // Mirrors the Swift `uriListPassesValidation` merged config: default header
     // (mixed-port/dns/external-controller) + a vless node + default rules that
     // include GEOIP,CN,DIRECT — the exact shape that regressed.
-    const GEOIP_CFG: &str = "mixed-port: 0\nmode: rule\nlog-level: info\nallow-lan: false\nexternal-controller: 127.0.0.1:0\n\ngeo-auto-update: false\n\ndns:\n  enable: true\n  listen: 127.0.0.1:0\n  enhanced-mode: redir-host\n  nameserver:\n    - 114.114.114.114\n    - 223.5.5.5\n\nproxies:\n  - name: \"TestNode\"\n    type: vless\n    server: \"1.2.3.4\"\n    port: 443\n    uuid: \"00000000-0000-0000-0000-000000000000\"\n    udp: true\n    tls: true\n    servername: \"example.com\"\n    network: ws\n    ws-opts:\n      path: \"/ws\"\n      headers:\n        Host: \"example.com\"\n\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - \"TestNode\"\n\nrules:\n  - DOMAIN-SUFFIX,google.com,PROXY\n  - GEOIP,CN,DIRECT\n  - MATCH,PROXY\n";
+    const GEOIP_CFG: &str = "mixed-port: 0\nmode: rule\nlog-level: info\nallow-lan: false\nexternal-controller: 127.0.0.1:0\n\ngeo-auto-update: false\n\ndns:\n  enable: true\n  listen: 127.0.0.1:0\n  enhanced-mode: fake-ip\n  nameserver:\n    - 114.114.114.114\n    - 223.5.5.5\n\nproxies:\n  - name: \"TestNode\"\n    type: vless\n    server: \"1.2.3.4\"\n    port: 443\n    uuid: \"00000000-0000-0000-0000-000000000000\"\n    udp: true\n    tls: true\n    servername: \"example.com\"\n    network: ws\n    ws-opts:\n      path: \"/ws\"\n      headers:\n        Host: \"example.com\"\n\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - \"TestNode\"\n\nrules:\n  - DOMAIN-SUFFIX,google.com,PROXY\n  - GEOIP,CN,DIRECT\n  - MATCH,PROXY\n";
 
     // Regression for the Swift `uriListPassesValidation` failure: meow's home
     // dir is a first-write-wins OnceLock, so once test A pins it and deletes

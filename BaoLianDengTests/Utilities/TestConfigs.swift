@@ -16,7 +16,7 @@ enum TestConfigs {
         dns:
           enable: true
           listen: 127.0.0.1:1053
-          enhanced-mode: redir-host
+          enhanced-mode: fake-ip
           nameserver:
             - 114.114.114.114
         proxies: []

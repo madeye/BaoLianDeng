@@ -156,7 +156,7 @@ mod tests {
     fn injects_into_merged_subscription_config() {
         // Mirrors ConfigManager.mergeSubscription output (default header +
         // subscription proxies/groups + default rules incl. GEOIP,CN).
-        let merged = "mixed-port: 0\nmode: rule\nexternal-controller: 127.0.0.1:0\ngeo-auto-update: false\n\ndns:\n  enable: true\n  enhanced-mode: redir-host\n\nproxies:\n  - name: \"TestNode\"\n    type: vless\n    server: \"1.2.3.4\"\n    port: 443\n    network: ws\n    ws-opts:\n      path: \"/ws\"\n\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - \"TestNode\"\n\nrules:\n  - GEOIP,CN,DIRECT\n  - MATCH,PROXY\n";
+        let merged = "mixed-port: 0\nmode: rule\nexternal-controller: 127.0.0.1:0\ngeo-auto-update: false\n\ndns:\n  enable: true\n  enhanced-mode: fake-ip\n\nproxies:\n  - name: \"TestNode\"\n    type: vless\n    server: \"1.2.3.4\"\n    port: 443\n    network: ws\n    ws-opts:\n      path: \"/ws\"\n\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - \"TestNode\"\n\nrules:\n  - GEOIP,CN,DIRECT\n  - MATCH,PROXY\n";
         let out = pin_geodata_paths(merged, "/home/x");
         assert!(out.contains("mmdb-path: /home/x/Country.mmdb"), "{out}");
     }

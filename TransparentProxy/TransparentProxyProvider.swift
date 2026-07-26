@@ -275,10 +275,10 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 )
                 socksConn = conn
 
-                // SOCKS5 handshake — pass the raw destination IP; mihomo
-                // recovers the domain via its DNS snooping reverse cache
-                // (populated from the UDP DNS queries we forward to its
-                // ephemeral DNS port).
+                // SOCKS5 handshake — pass the raw destination IP. Fake-IP
+                // destinations are mapped back to their domain by mihomo's
+                // fake-ip pool (populated from the UDP DNS queries we forward
+                // to its ephemeral DNS port); real IPs match IP-based rules.
                 try await SOCKS5Client.handshake(
                     connection: conn,
                     destHost: destHost,
@@ -389,6 +389,15 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                     guard !isBroadcastOrMulticast(endpoint.hostname) else {
                         continue
                     }
+                    // Fake-IP destinations (28.0.0.0/8) only exist inside
+                    // mihomo's fake-ip pool — relaying them to the physical
+                    // interface blackholes the packets (QUIC to a proxied
+                    // domain is the common case). Drop them; the client
+                    // falls back to TCP, which rides the SOCKS5 path where
+                    // mihomo maps the fake IP back to the domain.
+                    guard !isFakeIP(endpoint.hostname) else {
+                        continue
+                    }
 
                     // Lazily create relay on first non-DNS datagram
                     if relay == nil {
@@ -412,9 +421,9 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 
     /// Forward a UDP DNS query directly to mihomo's DNS server on the
     /// ephemeral port stored in `mihomoDNSPort` and relay the response
-    /// back to the app. Mihomo populates its own snooping cache from the
-    /// query, and its SOCKS5 listener uses that cache to recover the
-    /// domain when subsequent TCP flows arrive with only an IP.
+    /// back to the app. In fake-ip mode the answer is a synthetic 28.0.0.0/8
+    /// address that mihomo's SOCKS5 listener maps back to the queried domain
+    /// when the app connects to it.
     private func handleDNSQuery(
         query: Data, flow: NEAppProxyUDPFlow, endpoint: NWHostEndpoint
     ) async {

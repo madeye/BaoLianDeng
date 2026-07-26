@@ -62,7 +62,7 @@ pub fn test_proxy_http(target: &str) -> String {
 }
 
 /// Hand-built UDP DNS A query for www.google.com; parses the first A record and
-/// flags 198.18.0.0/15 as a fake-ip address in the result.
+/// flags 28.0.0.0/8 as a fake-ip address in the result.
 pub fn test_dns_resolver(dns_addr: &str) -> String {
     if dns_addr.is_empty() {
         return "FAIL: dns addr is null".to_string();
@@ -83,8 +83,8 @@ pub fn test_dns_resolver(dns_addr: &str) -> String {
     match sock.recv(&mut buf) {
         Ok(n) => match first_a_record(&buf[..n]) {
             Some(ip) => {
-                // 198.18.0.0/15 == 198.18.x.x or 198.19.x.x.
-                let fake = ip[0] == 198 && (ip[1] == 18 || ip[1] == 19);
+                // fake-ip pool is 28.0.0.0/8 (see ConfigManager.managedDNSSection).
+                let fake = ip[0] == 28;
                 format!(
                     "OK: resolved {}.{}.{}.{} fake-ip={fake}",
                     ip[0], ip[1], ip[2], ip[3]
