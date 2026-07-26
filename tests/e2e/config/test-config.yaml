@@ -10,7 +10,7 @@ dns:
   enable: true
   ipv6: false
   listen: 127.0.0.1:1053
-  enhanced-mode: redir-host
+  enhanced-mode: fake-ip
   nameserver:
     - 8.8.8.8
     - 1.1.1.1

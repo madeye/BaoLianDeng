@@ -188,6 +188,19 @@ struct MergeSubscriptionTests {
         #expect(merged.contains("dns:"))
     }
 
+    @Test("Merged config carries the managed fake-ip dns block")
+    func mergedHasManagedDNS() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        #expect(merged.contains("enhanced-mode: fake-ip"))
+        #expect(merged.contains("fake-ip-range: 28.0.0.0/8"))
+    }
+
     @Test("Falls back to default rules when subscription has none")
     func fallsBackToDefaultRules() {
         let sub = """
@@ -236,194 +249,67 @@ struct MergeSubscriptionTests {
     }
 }
 
-// MARK: - Proxy-Routed DNS Retargeting
+// MARK: - Managed DNS
 
-@Suite("retargetProxiedNameservers")
-struct RetargetProxiedNameserversTests {
+@Suite("forceManagedDNS")
+struct ForceManagedDNSTests {
 
-    static let taggedBase = """
-    mixed-port: 7890
-    mode: rule
-    dns:
-      enable: true
-      default-nameserver:
-        - 223.5.5.5
-      nameserver:
-        - 'tcp://1.1.1.1:53#PROXY'
-        - 'tcp://8.8.8.8:53#PROXY'
-    proxies: []
-    proxy-groups:
-      - name: PROXY
-        type: select
-        proxies: []
-    rules:
-      - MATCH,PROXY
-    """
-
-    @Test("Merge retargets #PROXY to the subscription's first select group")
-    func retargetsToFirstSelectGroup() {
-        let sub = """
-        proxies:
-          - {name: node, type: vless, server: 1.2.3.4, port: 443}
-        proxy-groups:
-          - name: '🚀 节点选择'
-            type: select
-            proxies:
-              - node
-        """
-        let merged = ConfigManager.mergeSubscription(
-            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
-        )
-        #expect(merged.contains("- 'tcp://1.1.1.1:53#🚀 节点选择'"))
-        #expect(merged.contains("- 'tcp://8.8.8.8:53#🚀 节点选择'"))
-        #expect(!merged.contains("#PROXY'"))
-    }
-
-    @Test("Non-select groups are skipped in favor of the first select group")
-    func prefersSelectOverAutoGroups() {
-        let sub = """
-        proxies:
-          - {name: node, type: vless, server: 1.2.3.4, port: 443}
-        proxy-groups:
-          - name: Auto
-            type: url-test
-            url: http://www.gstatic.com/generate_204
-            interval: 300
-            proxies:
-              - node
-          - name: Manual
-            type: select
-            proxies:
-              - node
-        """
-        let merged = ConfigManager.mergeSubscription(
-            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
-        )
-        #expect(merged.contains("- 'tcp://1.1.1.1:53#Manual'"))
-    }
-
-    @Test("Falls back to first group when subscription has no select group")
-    func fallsBackToFirstGroup() {
-        let sub = """
-        proxies:
-          - {name: node, type: vless, server: 1.2.3.4, port: 443}
-        proxy-groups:
-          - name: Auto
-            type: url-test
-            url: http://www.gstatic.com/generate_204
-            interval: 300
-            proxies:
-              - node
-        """
-        let merged = ConfigManager.mergeSubscription(
-            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
-        )
-        #expect(merged.contains("- 'tcp://1.1.1.1:53#Auto'"))
-    }
-
-    @Test("Strips tag when subscription defines no proxy-groups")
-    func stripsTagWithoutGroups() {
-        let sub = """
-        proxies:
-          - {name: node, type: vless, server: 1.2.3.4, port: 443}
-        """
-        let merged = ConfigManager.mergeSubscription(
-            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
-        )
-        #expect(merged.contains("- 'tcp://1.1.1.1:53'"))
-        #expect(merged.contains("- 'tcp://8.8.8.8:53'"))
-        #expect(!merged.contains("#PROXY"))
-    }
-
-    @Test("default-nameserver entries are never tagged")
-    func defaultNameserverUntouched() {
-        let sub = """
-        proxies:
-          - {name: node, type: vless, server: 1.2.3.4, port: 443}
-        proxy-groups:
-          - name: Group
-            type: select
-            proxies:
-              - node
-        """
-        let merged = ConfigManager.mergeSubscription(
-            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
-        )
-        #expect(merged.contains("- 223.5.5.5"))
-        #expect(!merged.contains("223.5.5.5#"))
-    }
-
-    @Test("Re-merge retargets a previously retargeted header")
-    func remergeRetargetsStaleTag() {
-        let firstSub = """
-        proxies:
-          - {name: a, type: vless, server: 1.2.3.4, port: 443}
-        proxy-groups:
-          - name: OldGroup
-            type: select
-            proxies:
-              - a
-        """
-        let secondSub = """
-        proxies:
-          - {name: b, type: vless, server: 5.6.7.8, port: 443}
-        proxy-groups:
-          - name: NewGroup
-            type: select
-            proxies:
-              - b
-        """
-        let first = ConfigManager.mergeSubscription(
-            firstSub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
-        )
-        // Second merge uses the first merge's output as base, the same way
-        // applySelectedSubscription reuses the on-disk config as base.
-        let second = ConfigManager.mergeSubscription(
-            secondSub, baseConfig: first, defaultConfig: Self.taggedBase
-        )
-        #expect(second.contains("- 'tcp://1.1.1.1:53#NewGroup'"))
-        #expect(!second.contains("OldGroup'"))
-    }
-
-    @Test("tls:// nameserver fragments (SNI) are left untouched")
-    func tlsSNIFragmentUntouched() {
-        let base = """
+    @Test("Replaces a redir-host dns block with the managed fake-ip block")
+    func replacesRedirHostBlock() {
+        var config = """
+        mixed-port: 7890
+        mode: rule
         dns:
           enable: true
+          listen: 127.0.0.1:1053
+          enhanced-mode: redir-host
           nameserver:
-            - 'tls://1.1.1.1:853#cloudflare-dns.com'
+            - 'tcp://1.1.1.1:53#PROXY'
         proxies: []
+        rules:
+          - MATCH,DIRECT
         """
-        let sub = """
-        proxies:
-          - {name: node, type: vless, server: 1.2.3.4, port: 443}
-        proxy-groups:
-          - name: Group
-            type: select
-            proxies:
-              - node
-        """
-        let merged = ConfigManager.mergeSubscription(
-            sub, baseConfig: base, defaultConfig: base
-        )
-        #expect(merged.contains("- 'tls://1.1.1.1:853#cloudflare-dns.com'"))
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config.contains("enhanced-mode: fake-ip"))
+        #expect(config.contains("fake-ip-range: 28.0.0.0/8"))
+        #expect(!config.contains("redir-host"))
+        #expect(!config.contains("#PROXY"))
+        // Managed block sits ahead of proxies:, keeping the header layout.
+        let dnsIdx = config.range(of: "dns:")!.lowerBound
+        let proxiesIdx = config.range(of: "proxies: []")!.lowerBound
+        #expect(dnsIdx < proxiesIdx)
     }
 
-    @Test("Group names containing single quotes are YAML-escaped")
-    func escapesSingleQuotesInGroupName() {
-        let sub = """
-        proxies:
-          - {name: node, type: vless, server: 1.2.3.4, port: 443}
-        proxy-groups:
-          - name: "It's Fast"
-            type: select
-            proxies:
-              - node
+    @Test("Inserts a dns block when the config has none")
+    func insertsWhenMissing() {
+        var config = "mode: rule\nproxies: []\nrules:\n  - MATCH,DIRECT"
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config.contains("enhanced-mode: fake-ip"))
+    }
+
+    @Test("Idempotent on an already-managed config")
+    func idempotent() {
+        var config = "mixed-port: 7890\n\(ConfigManager.managedDNSSection)\nproxies: []\n"
+        ConfigManager.forceManagedDNS(&config)
+        let once = config
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config == once)
+        #expect(config.components(separatedBy: "dns:").count - 1 == 1)
+    }
+
+    @Test("Top-level comments inside the dns section are removed with it")
+    func removesTopLevelCommentsInSection() {
+        var config = """
+        dns:
+          enable: true
+        # stray comment inside the section
+          enhanced-mode: redir-host
+        proxies: []
         """
-        let merged = ConfigManager.mergeSubscription(
-            sub, baseConfig: Self.taggedBase, defaultConfig: Self.taggedBase
-        )
-        #expect(merged.contains("- 'tcp://1.1.1.1:53#It''s Fast'"))
+        ConfigManager.forceManagedDNS(&config)
+        #expect(!config.contains("redir-host"))
+        #expect(!config.contains("stray comment"))
+        #expect(config.contains("enhanced-mode: fake-ip"))
     }
 }
 
@@ -670,16 +556,13 @@ struct SanitizeConfigStringTests {
         #expect(config.contains("dns:"))
     }
 
-    @Test("Config without TUN or geo-update is unchanged")
+    @Test("Sanitizing an already-sanitized config is a no-op")
     func noopWhenNothingToSanitize() {
-        var config = """
-        port: 7890
-        dns:
-          enable: true
-        """
-        let original = config
+        var config = "port: 7890\n\(ConfigManager.managedDNSSection)\n"
         ConfigManager.sanitizeConfigString(&config)
-        #expect(config == original)
+        let sanitized = config
+        ConfigManager.sanitizeConfigString(&config)
+        #expect(config == sanitized)
     }
 }
 
@@ -810,7 +693,7 @@ struct ConfigTopLevelScalarReplacementTests {
         let yaml = """
         mode: rule
         dns:
-          enhanced-mode: redir-host
+          enhanced-mode: fake-ip
         proxies:
           - name: obfs-node
             type: ss
@@ -826,7 +709,7 @@ struct ConfigTopLevelScalarReplacementTests {
         )
 
         #expect(updated.contains("mode: global"))
-        #expect(updated.contains("enhanced-mode: redir-host"))
+        #expect(updated.contains("enhanced-mode: fake-ip"))
         #expect(updated.contains("mode: websocket"))
         #expect(!updated.contains("mode: rule"))
     }

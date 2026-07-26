@@ -426,6 +426,76 @@ final class ConfigManager {
         }
         config = lines.joined(separator: "\n")
         stripSubscriptionsSection(&config)
+        forceManagedDNS(&config)
+    }
+
+    /// DNS settings owned by the app/extension, mirroring meow-ios's
+    /// EffectiveConfigWriter: any user- or subscription-supplied `dns:` block
+    /// is replaced wholesale on every sanitize.
+    ///
+    /// fake-ip mode answers every A query with a synthetic 28.0.0.0/8 address,
+    /// so the engine — not a local upstream — resolves proxied domains: the
+    /// query never leaves the machine in the clear and the answer can't be
+    /// poisoned. The range can't be mihomo's 198.18.0.0/15 default because
+    /// the transparent proxy's excludedNetworkRules bypass that range, which
+    /// would send fake-IP flows straight to the physical interface.
+    static let managedDNSSection = """
+    dns:
+      enable: true
+      listen: 127.0.0.1:0
+      enhanced-mode: fake-ip
+      fake-ip-range: 28.0.0.0/8
+      # Bootstrap-only resolvers: proxy-server hostnames must resolve
+      # without going through a proxy (dial cycle otherwise).
+      default-nameserver:
+        - 223.5.5.5
+        - 114.114.114.114
+      # Only reached for DIRECT rules and fake-ip-filtered names — proxied
+      # domains are resolved remotely by the proxy itself, so plaintext UDP
+      # here can neither poison nor observe them.
+      nameserver:
+        - 119.29.29.29
+        - 223.5.5.5
+    """
+
+    /// Replace any existing top-level `dns:` section with `managedDNSSection`,
+    /// inserting it ahead of `proxies:` (or at the end) to keep the header
+    /// layout stable. Idempotent: re-running on a managed config is a no-op
+    /// change in content.
+    static func forceManagedDNS(_ config: inout String) {
+        var lines = config.components(separatedBy: "\n")
+        if let start = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("dns:")
+                && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
+        }) {
+            var end = lines.count
+            for i in (start + 1)..<lines.count {
+                let line = lines[i]
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // Comments at any indentation stay with the section; only a
+                // real top-level key ends it.
+                if !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                    && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
+                    end = i
+                    break
+                }
+            }
+            lines.removeSubrange(start..<end)
+        }
+        let block = Self.managedDNSSection.components(separatedBy: "\n")
+        if let idx = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("proxies:")
+                && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
+        }) {
+            lines.insert(contentsOf: block + [""], at: idx)
+        } else {
+            // Drop trailing blank lines so appending stays idempotent.
+            while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+                lines.removeLast()
+            }
+            lines.append(contentsOf: [""] + block)
+        }
+        config = lines.joined(separator: "\n")
     }
 
     /// Remove the top-level `subscriptions:` section from a config string.
@@ -562,19 +632,12 @@ final class ConfigManager {
         // 1. Extract raw sections from subscription (preserves exact formatting)
         let sub = extractYAMLSections(from: yaml, named: ["proxies", "proxy-groups", "proxy-providers", "rules", "rule-providers"])
 
-        // 2. Header from base config (everything before proxies:) preserves user edits to ports, DNS, etc.
+        // 2. Header from base config (everything before proxies:) preserves
+        // user edits to ports etc. The dns block in it is replaced with the
+        // managed fake-ip block below.
         let baseLines = baseConfig.components(separatedBy: "\n")
         let proxiesCut = baseLines.firstIndex(where: { !$0.hasPrefix(" ") && !$0.hasPrefix("\t") && $0.hasPrefix("proxies:") }) ?? baseLines.count
-        var header = baseLines[0..<proxiesCut].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // The header's proxy-routed dns entries (`tcp://…#GROUP`) must
-        // reference a group that exists after the merge replaces all groups
-        // with the subscription's — a dangling reference is a hard config-load
-        // error in the engine, not a warning.
-        header = retargetProxiedNameservers(
-            in: header,
-            to: defaultProxyGroupName(inProxyGroupsSection: sub["proxy-groups"])
-        )
+        let header = baseLines[0..<proxiesCut].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
 
         // 3. Build merged config — pass through raw sections from subscription
         var result = header
@@ -588,72 +651,13 @@ final class ConfigManager {
         let defaultRules = extractYAMLSections(from: defaultConfig, named: ["rules"])
         result += "\n\n" + (sub["rules"] ?? defaultRules["rules"] ?? "rules:\n  - MATCH,DIRECT")
 
+        // Replace the base header's dns block with the managed fake-ip block,
+        // so a pre-upgrade header (redir-host, `tcp://…#GROUP` nameservers
+        // pointing at groups the subscription may not define) can't make the
+        // merged config fail validation or load.
+        forceManagedDNS(&result)
+
         return result
-    }
-
-    /// Rewrite the `#GROUP` tag on proxy-routed entries in the header's
-    /// `dns.nameserver:` list to `target`, or strip the tag when `target` is
-    /// nil so the entry degrades to a plain upstream instead of a dangling
-    /// reference. Only single-quoted `tcp://` / `udp://` list items are
-    /// touched — on `tls:///https://` upstreams the fragment is SNI, and
-    /// `default-nameserver` entries may not carry proxy tags at all.
-    static func retargetProxiedNameservers(in header: String, to target: String?) -> String {
-        var lines = header.components(separatedBy: "\n")
-        var inNameserverList = false
-        var keyIndent = 0
-        for i in lines.indices {
-            let line = lines[i]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let indent = line.prefix(while: { $0 == " " }).count
-            if trimmed == "nameserver:" {
-                inNameserverList = true
-                keyIndent = indent
-                continue
-            }
-            guard inNameserverList else { continue }
-            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
-            if indent <= keyIndent {
-                inNameserverList = false
-                continue
-            }
-            lines[i] = retargetNameserverEntry(line, to: target)
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func retargetNameserverEntry(_ line: String, to target: String?) -> String {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("- 'tcp://") || trimmed.hasPrefix("- 'udp://"),
-              trimmed.hasSuffix("'"),
-              let openQuote = line.firstIndex(of: "'"),
-              let closeQuote = line.lastIndex(of: "'"),
-              openQuote < closeQuote else {
-            return line
-        }
-        var url = String(line[line.index(after: openQuote)..<closeQuote])
-        if let hash = url.firstIndex(of: "#") {
-            url = String(url[..<hash])
-        }
-        if let target {
-            url += "#" + target.replacingOccurrences(of: "'", with: "''")
-        }
-        return String(line[..<openQuote]) + "'" + url + "'"
-    }
-
-    /// Default proxy group of a raw `proxy-groups:` section: the first
-    /// select-type group (the conventional main selector in subscription
-    /// configs), falling back to the first named group of any type.
-    static func defaultProxyGroupName(inProxyGroupsSection section: String?) -> String? {
-        guard let section,
-              let dict = (try? Yams.load(yaml: section)) as? [String: Any],
-              let groups = dict["proxy-groups"] as? [[String: Any]] else {
-            return nil
-        }
-        let named = groups.compactMap { group -> (name: String, type: String)? in
-            guard let name = group["name"] as? String, !name.isEmpty else { return nil }
-            return (name, group["type"] as? String ?? "")
-        }
-        return (named.first(where: { $0.type == "select" }) ?? named.first)?.name
     }
 
     /// Set interval to 0 in provider sections so Mihomo won't auto-refresh subscription URLs.
@@ -891,26 +895,7 @@ final class ConfigManager {
 
         geo-auto-update: false
 
-        dns:
-          enable: true
-          listen: 127.0.0.1:0
-          enhanced-mode: redir-host
-          # Bootstrap-only resolvers: proxy-server hostnames must resolve
-          # without going through a proxy (dial cycle otherwise), and the
-          # engine rejects #PROXY tags on default-nameserver entries.
-          default-nameserver:
-            - 223.5.5.5
-            - 114.114.114.114
-          # Public resolvers routed through the default proxy group so answers
-          # can't be poisoned locally. DNS-over-TCP, not tls:// — meow-rs
-          # treats the # fragment on tls:///https:// upstreams as SNI and has
-          # no proxy-routing for encrypted upstreams (EncryptedProxyUnsupported);
-          # the query still rides inside the proxy's encrypted transport.
-          # mergeSubscription retargets the #PROXY tag to the subscription's
-          # default select group.
-          nameserver:
-            - 'tcp://1.1.1.1:53#PROXY'
-            - 'tcp://8.8.8.8:53#PROXY'
+        \(Self.managedDNSSection)
 
         proxies: []
 

@@ -21,6 +21,18 @@ func isBroadcastOrMulticast(_ hostname: String) -> Bool {
     return false
 }
 
+/// Check if an IP address belongs to mihomo's fake-ip pool (28.0.0.0/8, see
+/// `ConfigManager.managedDNSSection`). Fake IPs are only meaningful to the
+/// engine's reverse mapping — they must never be dialed on the physical
+/// interface.
+func isFakeIP(_ hostname: String) -> Bool {
+    if let dot = hostname.firstIndex(of: "."),
+       let first = UInt8(hostname[hostname.startIndex..<dot]) {
+        return first == 28
+    }
+    return false
+}
+
 // MARK: - UDP NAT Relay (NAT2, Address-Restricted Cone)
 
 /// Relays non-DNS UDP traffic directly to the internet via POSIX UDP sockets.

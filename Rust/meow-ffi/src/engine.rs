@@ -123,7 +123,7 @@ pub async fn assemble(
 
     let mut handles: Vec<JoinHandle<()>> = Vec::new();
 
-    // DNS UDP server (redir-host reverse cache lives inside the resolver).
+    // DNS UDP server (fake-ip pool and reverse mapping live inside the resolver).
     {
         let dns_server = DnsServer::new(resolver, dns_addr);
         handles.push(tokio::spawn(async move {
