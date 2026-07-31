@@ -53,6 +53,8 @@ struct SettingsView: View {
 
             PerAppProxySection()
 
+            LANSharingSection()
+
             Section("Diagnostics") {
                 NavigationLink("Network Diagnostics") {
                     DiagnosticsView()

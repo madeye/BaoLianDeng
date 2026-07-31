@@ -156,6 +156,17 @@
         }
       }
     },
+    "Allow LAN": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许局域网连接"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Bypass Listed Apps": {
       "localizations": {
         "zh-Hans": {
@@ -627,6 +638,28 @@
       }
     },
     "L%lld": {},
+    "LAN": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "局域网"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "LAN Proxy Address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "局域网代理地址"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "License": {
       "localizations": {
         "zh-Hans": {
@@ -890,6 +923,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "仅代理列表中的应用"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Proxy Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理端口"
           }
         }
       },
@@ -1374,6 +1418,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "VPN"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "While the VPN is connected, other devices on your network can use this Mac as their SOCKS5/HTTP proxy server on the proxy port. Anyone on the local network can use the proxy \u2014 enable only on networks you trust.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 连接期间，局域网内的其他设备可将本机用作 SOCKS5/HTTP 代理服务器（代理端口）。局域网内任何人都能使用该代理——请仅在可信网络中启用。"
           }
         }
       },

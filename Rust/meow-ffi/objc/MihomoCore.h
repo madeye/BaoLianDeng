@@ -7,6 +7,10 @@ FOUNDATION_EXPORT void BridgeSetLogFile(NSString * _Nullable path);
 /// clients know the controller endpoint without an IPC round-trip.
 /// `controllerAddr` is `host:port`.
 FOUNDATION_EXPORT BOOL BridgeStartWithPorts(int32_t socksPort, int32_t dnsPort, NSString * _Nonnull controllerAddr, NSString * _Nullable secret, NSError * _Nullable * _Nullable error);
+/// Like BridgeStartWithPorts, additionally exposing a mixed (SOCKS5+HTTP)
+/// listener on 0.0.0.0:lanProxyPort so LAN clients can use this machine as
+/// their proxy server. Pass 0 to disable the LAN listener.
+FOUNDATION_EXPORT BOOL BridgeStartWithLAN(int32_t socksPort, int32_t dnsPort, NSString * _Nonnull controllerAddr, NSString * _Nullable secret, int32_t lanProxyPort, NSError * _Nullable * _Nullable error);
 FOUNDATION_EXPORT void BridgeStopProxy(void);
 FOUNDATION_EXPORT BOOL BridgeIsRunning(void);
 

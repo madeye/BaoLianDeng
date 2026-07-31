@@ -32,6 +32,11 @@
 		A1B2C3D4E5F60718293A4B5C /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
 		A1B2C3D4E5F60718293A4B5D /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
 		A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096 /* PerAppProxySection.swift */; };
+		LS100001 /* LANSharingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10097 /* LANSharingSettings.swift */; };
+		LS100002 /* LANSharingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10097 /* LANSharingSettings.swift */; };
+		LS100003 /* LANSharingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10097 /* LANSharingSettings.swift */; };
+		LS100004 /* LANSharingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10098 /* LANSharingSection.swift */; };
+		LS100005 /* LANSharingSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10099 /* LANSharingSettingsTests.swift */; };
 		A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* TrafficStore.swift */; };
 		B10063 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* MihomoAPI.swift */; };
@@ -180,6 +185,9 @@
 		B10090 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		B10095 /* PerAppProxySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettings.swift; sourceTree = "<group>"; };
 		B10096 /* PerAppProxySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySection.swift; sourceTree = "<group>"; };
+		B10097 /* LANSharingSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANSharingSettings.swift; sourceTree = "<group>"; };
+		B10098 /* LANSharingSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANSharingSection.swift; sourceTree = "<group>"; };
+		B10099 /* LANSharingSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANSharingSettingsTests.swift; sourceTree = "<group>"; };
 		B10100 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		B10101 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		B10200 /* SubscriptionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionModels.swift; sourceTree = "<group>"; };
@@ -329,6 +337,7 @@
 				B10007 /* Constants.swift */,
 				B10008 /* ConfigManager.swift */,
 				B10095 /* PerAppProxySettings.swift */,
+				B10097 /* LANSharingSettings.swift */,
 				B10009 /* VPNManager.swift */,
 			);
 			path = Shared;
@@ -378,6 +387,7 @@
 				B10054 /* ConfigStyleHelpers.swift */,
 				B10055 /* ConfigListViews.swift */,
 				B10096 /* PerAppProxySection.swift */,
+				B10098 /* LANSharingSection.swift */,
 				B10200 /* SubscriptionModels.swift */,
 				B10202 /* NodeRow.swift */,
 				B10204 /* MainContentView.swift */,
@@ -406,6 +416,7 @@
 			children = (
 				T10050 /* Utilities */,
 				T10007 /* PerAppProxySettingsTests.swift */,
+				B10099 /* LANSharingSettingsTests.swift */,
 				T10021 /* BypassGroupDetectionTests.swift */,
 				T10030 /* ConfigParserTests.swift */,
 				T10032 /* MihomoCoreIntegrationTests.swift */,
@@ -609,7 +620,9 @@
 				8263DE84A3B841EF63A2FF89 /* ConfigManager.swift in Sources */,
 				8D9BF44D7D340ADB5C09AEF9 /* VPNManager.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* PerAppProxySettings.swift in Sources */,
+				LS100001 /* LANSharingSettings.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */,
+				LS100004 /* LANSharingSection.swift in Sources */,
 				B10400B /* SOCKS5Client.swift in Sources */,
 				B10201 /* SubscriptionModels.swift in Sources */,
 				B10203 /* NodeRow.swift in Sources */,
@@ -632,6 +645,7 @@
 				1C46310C4BA03116BAE1CF24 /* ConfigManager.swift in Sources */,
 				ADFBB07EC9AE7B14EE8CF08D /* VPNManager.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5D /* PerAppProxySettings.swift in Sources */,
+				LS100002 /* LANSharingSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -646,6 +660,7 @@
 				AX10024 /* Constants.swift in Sources */,
 				AX10025 /* ConfigManager.swift in Sources */,
 				AX10027 /* PerAppProxySettings.swift in Sources */,
+				LS100003 /* LANSharingSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -654,6 +669,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				T10008 /* PerAppProxySettingsTests.swift in Sources */,
+				LS100005 /* LANSharingSettingsTests.swift in Sources */,
 				T10022 /* BypassGroupDetectionTests.swift in Sources */,
 				T10031 /* ConfigParserTests.swift in Sources */,
 				T10033 /* MihomoCoreIntegrationTests.swift in Sources */,
