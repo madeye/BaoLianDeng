@@ -37,6 +37,13 @@ pub struct EngineState {
 /// Load `<config_path>`, force the runtime endpoints, and start the tunnel,
 /// DNS server, REST API, and mixed (SOCKS5+HTTP) listener on the shared
 /// runtime. Returns the assembled [`EngineState`] with all task handles.
+///
+/// `lan_proxy_port` > 0 additionally exposes a mixed (SOCKS5+HTTP) listener
+/// on `0.0.0.0` at that port, so other LAN devices can use this machine as
+/// their proxy server ("allow LAN"). The loopback listeners above are
+/// unaffected. The LAN port is bind-checked up-front so an occupied port
+/// fails engine start with a clear error instead of a warning buried in the
+/// log.
 pub async fn assemble(
     config_path: String,
     home: String,
@@ -44,6 +51,7 @@ pub async fn assemble(
     dns_port: i32,
     controller_addr: String,
     secret: String,
+    lan_proxy_port: i32,
 ) -> anyhow::Result<EngineState> {
     let mut config = load_config_pinned(&config_path, &home).await?;
 
@@ -75,6 +83,17 @@ pub async fn assemble(
         tproxy_sni: false,
         max_connections: 0,
     }];
+    validate_lan_port(lan_proxy_port, socks_port)?;
+    if lan_proxy_port > 0 {
+        config.listeners.named.push(NamedListener {
+            name: "mixed-lan".to_string(),
+            listener_type: ListenerType::Mixed,
+            port: lan_proxy_port as u16,
+            listen: "0.0.0.0".to_string(),
+            tproxy_sni: false,
+            max_connections: 0,
+        });
+    }
     config.listeners.mixed_port = Some(socks_addr.port());
     config.listeners.socks_port = None;
     config.listeners.http_port = None;
@@ -174,7 +193,10 @@ pub async fn assemble(
         }));
     }
 
-    info!("meow engine started: socks={socks_port} dns={dns_port} controller={controller_addr}");
+    info!(
+        "meow engine started: socks={socks_port} dns={dns_port} controller={controller_addr} \
+         lan_proxy={lan_proxy_port}"
+    );
 
     Ok(EngineState {
         tunnel,
@@ -183,6 +205,29 @@ pub async fn assemble(
         dns_port,
         controller_addr,
     })
+}
+
+/// Validate the LAN proxy port and bind-check it up-front.
+///
+/// The listener itself binds later inside a spawned task where a failure
+/// only reaches the log, so an occupied port is caught here with a test
+/// bind (bound then immediately dropped — the small TOCTOU window mirrors
+/// the app-side `EphemeralPort` picker and is acceptable).
+fn validate_lan_port(lan_proxy_port: i32, socks_port: i32) -> anyhow::Result<()> {
+    if !(0..=65535).contains(&lan_proxy_port) {
+        anyhow::bail!("LAN proxy port {lan_proxy_port} is out of range");
+    }
+    // A 0.0.0.0 bind covers loopback too, so sharing a port with the internal
+    // 127.0.0.1 listener can never work — reject it explicitly rather than
+    // letting the two binds race.
+    if lan_proxy_port > 0 && lan_proxy_port == socks_port {
+        anyhow::bail!("LAN proxy port {lan_proxy_port} collides with the internal SOCKS port");
+    }
+    if lan_proxy_port > 0 {
+        std::net::TcpListener::bind(("0.0.0.0", lan_proxy_port as u16))
+            .map_err(|e| anyhow::anyhow!("LAN proxy port {lan_proxy_port} unavailable: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Load a config with geodata paths pinned to the bridge home dir.

@@ -5,6 +5,7 @@
 extern void bridge_set_home_dir(const char *dir);
 extern int32_t bridge_set_log_file(const char *path);
 extern int32_t bridge_start_with_ports(int32_t socks_port, int32_t dns_port, const char *controller_addr, const char *secret);
+extern int32_t bridge_start_with_lan(int32_t socks_port, int32_t dns_port, const char *controller_addr, const char *secret, int32_t lan_proxy_port);
 extern int32_t bridge_get_socks_port(void);
 extern int32_t bridge_get_dns_port(void);
 extern char *bridge_get_external_controller_addr(void);
@@ -40,6 +41,15 @@ void BridgeSetLogFile(NSString * _Nullable path) {
 
 BOOL BridgeStartWithPorts(int32_t socksPort, int32_t dnsPort, NSString * _Nonnull controllerAddr, NSString * _Nullable secret, NSError * _Nullable * _Nullable error) {
     int32_t rc = bridge_start_with_ports(socksPort, dnsPort, [controllerAddr UTF8String], [secret UTF8String]);
+    if (rc != 0) {
+        if (error) *error = makeError();
+        return NO;
+    }
+    return YES;
+}
+
+BOOL BridgeStartWithLAN(int32_t socksPort, int32_t dnsPort, NSString * _Nonnull controllerAddr, NSString * _Nullable secret, int32_t lanProxyPort, NSError * _Nullable * _Nullable error) {
+    int32_t rc = bridge_start_with_lan(socksPort, dnsPort, [controllerAddr UTF8String], [secret UTF8String], lanProxyPort);
     if (rc != 0) {
         if (error) *error = makeError();
         return NO;
