@@ -270,6 +270,17 @@
         }
       }
     },
+    "DNS Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 端口"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Daily Proxy Traffic (Last 30 Days)": {
       "localizations": {
         "zh-Hans": {
@@ -402,6 +413,17 @@
           }
         }
       }
+    },
+    "Enable LAN Sharing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用局域网共享"
+          }
+        }
+      },
+      "extractionState": "manual"
     },
     "Enable Per-App Proxy": {
       "localizations": {
@@ -895,6 +917,17 @@
       },
       "extractionState": "manual"
     },
+    "Proxy Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理端口"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Read Only": {
       "localizations": {
         "zh-Hans": {
@@ -1092,6 +1125,28 @@
         }
       }
     },
+    "Share DNS Resolver": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享 DNS 解析"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Side Router (LAN Sharing)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旁路由（局域网共享）"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Silent": {
       "localizations": {
         "zh-Hans": {
@@ -1202,6 +1257,17 @@
           }
         }
       }
+    },
+    "This Mac's LAN Address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机局域网地址"
+          }
+        }
+      },
+      "extractionState": "manual"
     },
     "This will permanently clear the usage counters for all subscriptions.": {
       "localizations": {
@@ -1374,6 +1440,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "VPN"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "While the VPN is connected, other devices on your network can use this Mac as their SOCKS5/HTTP proxy server on the proxy port, and as their DNS server. Anyone on the local network can use these services \u2014 enable only on networks you trust.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 连接期间，局域网内的其他设备可将本机用作 SOCKS5/HTTP 代理服务器（代理端口），并可将 DNS 指向本机。局域网内任何人都能使用这些服务——请仅在可信网络中启用。"
           }
         }
       },

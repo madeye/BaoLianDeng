@@ -27,6 +27,7 @@ enum AppConstants {
     static let dailyTrafficKey = "dailyTrafficRecords"
     static let subscriptionUsageKey = "subscriptionUsageRecords"
     static let perAppProxySettingsKey = "perAppProxySettings"
+    static let lanSharingSettingsKey = "lanSharingSettings"
     static let autoStartVPNAtLoginKey = "autoStartVPNAtLogin"
 
     /// Live mihomo REST controller address (`host:port`). Returns nil when

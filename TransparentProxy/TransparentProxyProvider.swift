@@ -43,6 +43,12 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private var controllerAddr: String = ""
     private var controllerSecret: String = ""
 
+    /// LAN side-router listener ports (0 = disabled). When set, the engine
+    /// additionally binds a mixed SOCKS5/HTTP listener / DNS server on
+    /// 0.0.0.0 so other LAN devices can use this Mac as proxy + DNS.
+    private var lanProxyPort: UInt16 = 0
+    private var lanDNSPort: UInt16 = 0
+
     private lazy var logURL: URL = {
         let dir = ConfigManager.shared.configDirectoryURL?.deletingLastPathComponent()
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -138,12 +144,16 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 completionHandler(ProviderError.configNotFound)
                 return
             }
+            let lanProxy = self?.lanProxyPort ?? 0
+            let lanDNS = self?.lanDNSPort ?? 0
             self?.log(
                 "Starting Mihomo proxy engine: socks=\(socks) dns=\(dns) controller=\(ctrl)"
+                    + " lanProxy=\(lanProxy) lanDNS=\(lanDNS)"
             )
             var startError: NSError?
-            BridgeStartWithPorts(
-                Int32(socks), Int32(dns), ctrl, secret, &startError
+            BridgeStartWithLAN(
+                Int32(socks), Int32(dns), ctrl, secret,
+                Int32(lanProxy), Int32(lanDNS), &startError
             )
             if let startError = startError {
                 self?.log("ERROR: BridgeStartWithPorts failed: \(startError)")
@@ -712,6 +722,16 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
         if let secret = providerConfig?["secret"] as? String {
             self.controllerSecret = secret
+        }
+
+        // LAN side-router listener ports; absent or 0 means disabled.
+        if let lanProxy = providerConfig?["lanProxyPort"] as? Int,
+           (1...65535).contains(lanProxy) {
+            self.lanProxyPort = UInt16(lanProxy)
+        }
+        if let lanDNS = providerConfig?["lanDnsPort"] as? Int,
+           (1...65535).contains(lanDNS) {
+            self.lanDNSPort = UInt16(lanDNS)
         }
 
         return configDir

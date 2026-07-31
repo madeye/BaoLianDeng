@@ -630,6 +630,16 @@ final class VPNManager: NSObject, ObservableObject {
             providerConfig["perAppProxy"] = perAppData
         }
 
+        // LAN sharing (side router): forward the fixed LAN listener ports so
+        // the engine additionally binds on 0.0.0.0. Absent keys mean disabled.
+        let lanSettings = LANSharingSettings.load(from: defaults)
+        if lanSettings.enabled {
+            providerConfig["lanProxyPort"] = lanSettings.effectiveProxyPort
+            providerConfig["lanDnsPort"] = lanSettings.dnsEnabled ? lanSettings.effectiveDNSPort : 0
+            dbg("passSettings: LAN sharing proxy=\(lanSettings.effectiveProxyPort) "
+                + "dns=\(lanSettings.dnsEnabled ? lanSettings.effectiveDNSPort : 0)")
+        }
+
         // Pick ephemeral 127.0.0.1 ports for the SOCKS5, DNS, and REST
         // controller listeners and forward them to the extension. We
         // pick in this process (not the extension) so the app's REST

@@ -351,6 +351,22 @@ pub unsafe extern "C" fn bridge_start_with_ports(
     controller_addr: *const c_char,
     secret: *const c_char,
 ) -> i32 {
+    bridge_start_with_lan(socks_port, dns_port, controller_addr, secret, 0, 0)
+}
+
+/// Like [`bridge_start_with_ports`], additionally exposing a mixed
+/// (SOCKS5+HTTP) listener on `0.0.0.0:<lan_proxy_port>` and a DNS server on
+/// `0.0.0.0:<lan_dns_port>` for LAN side-router use. Either may be 0 to
+/// disable that LAN listener; the loopback listeners are unaffected.
+#[no_mangle]
+pub unsafe extern "C" fn bridge_start_with_lan(
+    socks_port: i32,
+    dns_port: i32,
+    controller_addr: *const c_char,
+    secret: *const c_char,
+    lan_proxy_port: i32,
+    lan_dns_port: i32,
+) -> i32 {
     guard(-1, || {
         let mut engine = ENGINE.lock();
         if engine.is_some() {
@@ -388,6 +404,8 @@ pub unsafe extern "C" fn bridge_start_with_ports(
             dns_port,
             addr,
             secret_s,
+            lan_proxy_port,
+            lan_dns_port,
         )) {
             Ok(state) => {
                 *engine = Some(state);
@@ -802,6 +820,105 @@ rules:
         let _ = std::fs::remove_dir_all(&dir_b);
         assert_eq!(rc, 0, "GEOIP validate under home B failed: {err}");
         assert!(!err.contains(&a_str), "resolved stale home A: {err}");
+    }
+
+    #[test]
+    fn lan_listeners_start_and_serve() {
+        let _g = TEST_LOCK.lock();
+
+        let dir = std::env::temp_dir().join(format!("meow-ffi-lan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.yaml"), MINIMAL_CONFIG).unwrap();
+        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
+
+        let socks = free_port();
+        let dns = free_port();
+        let ctrl = free_port();
+        let lan_proxy = free_port();
+        let lan_dns = free_port();
+        let ctrl_c = CString::new(format!("127.0.0.1:{ctrl}")).unwrap();
+        let secret_c = CString::new("").unwrap();
+
+        let rc = unsafe {
+            bridge_start_with_lan(
+                socks,
+                dns,
+                ctrl_c.as_ptr(),
+                secret_c.as_ptr(),
+                lan_proxy,
+                lan_dns,
+            )
+        };
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, 0, "LAN start failed: {err}");
+
+        // The LAN mixed listener must accept TCP (0.0.0.0 covers loopback).
+        let mut connected = false;
+        for _ in 0..20 {
+            if std::net::TcpStream::connect(format!("127.0.0.1:{lan_proxy}")).is_ok() {
+                connected = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(connected, "LAN mixed listener not accepting on {lan_proxy}");
+
+        // The LAN DNS UDP port must be bound (a fresh bind now fails).
+        let mut dns_bound = false;
+        for _ in 0..20 {
+            if std::net::UdpSocket::bind(("0.0.0.0", lan_dns as u16)).is_err() {
+                dns_bound = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(dns_bound, "LAN DNS server not bound on {lan_dns}");
+
+        bridge_stop_proxy();
+        assert!(!bridge_is_running());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lan_start_fails_on_occupied_port() {
+        let _g = TEST_LOCK.lock();
+
+        let dir = std::env::temp_dir().join(format!("meow-ffi-lanbusy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.yaml"), MINIMAL_CONFIG).unwrap();
+        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
+
+        // Occupy a port on 0.0.0.0 so the LAN preflight bind must fail.
+        let blocker = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+        let busy = blocker.local_addr().unwrap().port() as i32;
+
+        let ctrl_c = CString::new(format!("127.0.0.1:{}", free_port())).unwrap();
+        let secret_c = CString::new("").unwrap();
+        let rc = unsafe {
+            bridge_start_with_lan(
+                free_port(),
+                free_port(),
+                ctrl_c.as_ptr(),
+                secret_c.as_ptr(),
+                busy,
+                0,
+            )
+        };
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, -1, "start must fail when the LAN port is occupied");
+        assert!(err.contains("LAN proxy port"), "error was: {err}");
+        assert!(!bridge_is_running());
+
+        drop(blocker);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

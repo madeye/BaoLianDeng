@@ -37,6 +37,13 @@ pub struct EngineState {
 /// Load `<config_path>`, force the runtime endpoints, and start the tunnel,
 /// DNS server, REST API, and mixed (SOCKS5+HTTP) listener on the shared
 /// runtime. Returns the assembled [`EngineState`] with all task handles.
+///
+/// `lan_proxy_port` / `lan_dns_port` > 0 additionally expose a mixed
+/// (SOCKS5+HTTP) listener / DNS server on `0.0.0.0` at that port, so other
+/// LAN devices can use this machine as a side router (proxy + DNS). The
+/// loopback listeners above are unaffected. LAN ports are bind-checked
+/// up-front so an occupied port fails engine start with a clear error
+/// instead of a warning buried in the log.
 pub async fn assemble(
     config_path: String,
     home: String,
@@ -44,6 +51,8 @@ pub async fn assemble(
     dns_port: i32,
     controller_addr: String,
     secret: String,
+    lan_proxy_port: i32,
+    lan_dns_port: i32,
 ) -> anyhow::Result<EngineState> {
     let mut config = load_config_pinned(&config_path, &home).await?;
 
@@ -75,6 +84,17 @@ pub async fn assemble(
         tproxy_sni: false,
         max_connections: 0,
     }];
+    let lan_dns_addr = validate_lan_ports(lan_proxy_port, lan_dns_port, socks_port, dns_port)?;
+    if lan_proxy_port > 0 {
+        config.listeners.named.push(NamedListener {
+            name: "mixed-lan".to_string(),
+            listener_type: ListenerType::Mixed,
+            port: lan_proxy_port as u16,
+            listen: "0.0.0.0".to_string(),
+            tproxy_sni: false,
+            max_connections: 0,
+        });
+    }
     config.listeners.mixed_port = Some(socks_addr.port());
     config.listeners.socks_port = None;
     config.listeners.http_port = None;
@@ -125,10 +145,22 @@ pub async fn assemble(
 
     // DNS UDP server (redir-host reverse cache lives inside the resolver).
     {
-        let dns_server = DnsServer::new(resolver, dns_addr);
+        let dns_server = DnsServer::new(Arc::clone(&resolver), dns_addr);
         handles.push(tokio::spawn(async move {
             if let Err(e) = dns_server.run().await {
                 error!("DNS server error: {e}");
+            }
+        }));
+    }
+
+    // LAN-facing DNS server (side-router mode): same resolver — and thus the
+    // same redir-host snooping cache — bound on all interfaces so LAN devices
+    // can point their DNS at this machine.
+    if let Some(lan_addr) = lan_dns_addr {
+        let dns_server = DnsServer::new(Arc::clone(&resolver), lan_addr);
+        handles.push(tokio::spawn(async move {
+            if let Err(e) = dns_server.run().await {
+                error!("LAN DNS server error: {e}");
             }
         }));
     }
@@ -174,7 +206,10 @@ pub async fn assemble(
         }));
     }
 
-    info!("meow engine started: socks={socks_port} dns={dns_port} controller={controller_addr}");
+    info!(
+        "meow engine started: socks={socks_port} dns={dns_port} controller={controller_addr} \
+         lan_proxy={lan_proxy_port} lan_dns={lan_dns_port}"
+    );
 
     Ok(EngineState {
         tunnel,
@@ -183,6 +218,50 @@ pub async fn assemble(
         dns_port,
         controller_addr,
     })
+}
+
+/// Validate the LAN side-router ports and bind-check them up-front.
+///
+/// Returns the `0.0.0.0` socket address for the LAN DNS server when
+/// `lan_dns_port` > 0. The listeners themselves bind later inside spawned
+/// tasks where a failure only reaches the log, so occupied ports are caught
+/// here with a test bind (bound then immediately dropped — the small TOCTOU
+/// window mirrors the app-side `EphemeralPort` picker and is acceptable).
+fn validate_lan_ports(
+    lan_proxy_port: i32,
+    lan_dns_port: i32,
+    socks_port: i32,
+    dns_port: i32,
+) -> anyhow::Result<Option<SocketAddr>> {
+    for (label, port) in [("LAN proxy", lan_proxy_port), ("LAN DNS", lan_dns_port)] {
+        if !(0..=65535).contains(&port) {
+            anyhow::bail!("{label} port {port} is out of range");
+        }
+    }
+    // A 0.0.0.0 bind covers loopback too, so sharing a port with the internal
+    // 127.0.0.1 listeners can never work — reject it explicitly rather than
+    // letting the two binds race.
+    if lan_proxy_port > 0 && lan_proxy_port == socks_port {
+        anyhow::bail!("LAN proxy port {lan_proxy_port} collides with the internal SOCKS port");
+    }
+    if lan_dns_port > 0 && lan_dns_port == dns_port {
+        anyhow::bail!("LAN DNS port {lan_dns_port} collides with the internal DNS port");
+    }
+
+    if lan_proxy_port > 0 {
+        std::net::TcpListener::bind(("0.0.0.0", lan_proxy_port as u16))
+            .map_err(|e| anyhow::anyhow!("LAN proxy port {lan_proxy_port} unavailable: {e}"))?;
+    }
+    let mut lan_dns_addr = None;
+    if lan_dns_port > 0 {
+        std::net::UdpSocket::bind(("0.0.0.0", lan_dns_port as u16))
+            .map_err(|e| anyhow::anyhow!("LAN DNS port {lan_dns_port} unavailable: {e}"))?;
+        lan_dns_addr = Some(SocketAddr::new(
+            IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+            lan_dns_port as u16,
+        ));
+    }
+    Ok(lan_dns_addr)
 }
 
 /// Load a config with geodata paths pinned to the bridge home dir.
