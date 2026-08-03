@@ -50,14 +50,6 @@ struct MihomoCoreIntegrationTests {
         #expect(err!.localizedDescription.contains("NONEXISTENT"))
     }
 
-    @Test("Rejects empty config")
-    func rejectsEmptyConfig() {
-        var err: NSError?
-        BridgeValidateConfig("", &err)
-        // Empty config should either parse as empty (valid) or produce an error
-        // Either outcome is acceptable — this documents the behavior
-    }
-
     @Test("Validates config with GEOIP rule when geodata available")
     func validatesGeoIPRule() throws {
         // Ensure geodata files exist in a temp directory
