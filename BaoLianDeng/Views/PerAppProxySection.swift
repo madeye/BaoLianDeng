@@ -34,6 +34,22 @@ struct PerAppProxySection: View {
     }
 
     private func load() {
+        settings = Self.stored()
+    }
+
+    private func save() {
+        // onChange also fires when load() populates the state on appear —
+        // skip when nothing actually changed so switching to the Settings
+        // tab doesn't bounce the VPN.
+        guard settings != Self.stored() else { return }
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        AppConstants.sharedDefaults.set(
+            data, forKey: AppConstants.perAppProxySettingsKey
+        )
+        vpnManager.restartIfConnected()
+    }
+
+    private static func stored() -> PerAppProxySettings {
         let defaults = AppConstants.sharedDefaults
         guard let data = defaults.data(
             forKey: AppConstants.perAppProxySettingsKey
@@ -41,16 +57,8 @@ struct PerAppProxySection: View {
             let decoded = try? JSONDecoder().decode(
                 PerAppProxySettings.self, from: data
             )
-        else { return }
-        settings = decoded
-    }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(settings) else { return }
-        AppConstants.sharedDefaults.set(
-            data, forKey: AppConstants.perAppProxySettingsKey
-        )
-        vpnManager.restartIfConnected()
+        else { return PerAppProxySettings() }
+        return decoded
     }
 }
 

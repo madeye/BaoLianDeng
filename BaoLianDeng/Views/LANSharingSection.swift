@@ -70,15 +70,17 @@ struct LANSharingSection: View {
     }
 
     private func save() {
+        // onChange also fires when load() populates the state on appear —
+        // skip when nothing actually changed so switching to the Settings
+        // tab doesn't bounce the VPN.
+        guard settings != LANSharingSettings.load() else { return }
         settings.save()
         vpnManager.restartIfConnected()
     }
 
-    /// Persist an edited port field, but only restart the tunnel when the
-    /// stored value actually changed — onDisappear fires on every tab
-    /// switch and must not bounce the VPN gratuitously.
+    /// Persist an edited port field — commits on Enter and when focus
+    /// leaves the tab (onDisappear); save() ignores no-op commits.
     private func commitPort() {
-        guard settings != LANSharingSettings.load() else { return }
         save()
     }
 
