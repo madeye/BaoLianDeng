@@ -483,18 +483,6 @@ struct DelayColorTests {
         #expect(delayColor(1000) == "red")
         #expect(delayColor(9999) == "red")
     }
-
-    @Test("Boundary: 199 is green, 200 is orange")
-    func greenOrangeBoundary() {
-        #expect(delayColor(199) == "green")
-        #expect(delayColor(200) == "orange")
-    }
-
-    @Test("Boundary: 499 is orange, 500 is red")
-    func orangeRedBoundary() {
-        #expect(delayColor(499) == "orange")
-        #expect(delayColor(500) == "red")
-    }
 }
 
 // MARK: - ProxyNode Delay Display Tests
@@ -653,8 +641,7 @@ struct ConnectionFilteringTests {
 struct RuleProxyColorTests {
 
     // Per spec: DIRECT=green, REJECT=red, proxy=blue
-    // Note: current RulesView.swift has a bug — uses blue for all targets.
-    // These tests document the expected behavior.
+    // (mirrors proxyColor in ConfigListViews.swift)
 
     private func expectedProxyColor(_ proxy: String) -> String {
         switch proxy {

@@ -29,29 +29,6 @@ enum TestConfigs {
           - MATCH,DIRECT
         """
 
-    /// Config with an unreachable proxy node for testing error paths.
-    static let withUnreachableProxy = """
-        mixed-port: 7890
-        mode: rule
-        log-level: silent
-        external-controller: 127.0.0.1:9090
-        proxies:
-          - name: unreachable
-            type: ss
-            server: 192.0.2.1
-            port: 8388
-            cipher: aes-256-gcm
-            password: test
-        proxy-groups:
-          - name: PROXY
-            type: select
-            proxies:
-              - unreachable
-              - DIRECT
-        rules:
-          - MATCH,PROXY
-        """
-
     /// Invalid YAML that should fail parsing.
     static let invalid = """
         mixed-port: 7890

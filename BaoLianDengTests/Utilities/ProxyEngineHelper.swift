@@ -12,9 +12,7 @@ enum ProxyEngineHelper {
 
     struct EngineContext {
         let tempDir: String
-        let configPath: String
         let socksPort: UInt16
-        let dnsPort: UInt16
         let controllerAddr: String
     }
 
@@ -63,9 +61,7 @@ enum ProxyEngineHelper {
 
         return EngineContext(
             tempDir: tempDir,
-            configPath: configPath,
             socksPort: socksPort,
-            dnsPort: dnsPort,
             controllerAddr: controllerAddr
         )
     }

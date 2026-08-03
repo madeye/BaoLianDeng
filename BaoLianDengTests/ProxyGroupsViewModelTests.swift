@@ -2,7 +2,6 @@
 //
 // Licensed under the MIT License. See the LICENSE file for details.
 
-import Foundation
 import Testing
 @testable import BaoLianDeng
 
