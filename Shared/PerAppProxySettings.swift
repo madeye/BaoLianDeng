@@ -16,7 +16,7 @@ struct PerAppEntry: Codable, Identifiable, Equatable {
     let bundlePath: String
 }
 
-struct PerAppProxySettings: Codable {
+struct PerAppProxySettings: Codable, Equatable {
     var enabled: Bool = false
     var mode: PerAppProxyMode = .blocklist
     var apps: [PerAppEntry] = []
