@@ -213,6 +213,14 @@ struct HomeView: View {
                     // Live switch via REST API — no tunnel restart needed
                     Task {
                         try? await MihomoAPI.switchMode(newMode.rawValue)
+                        // The engine's auto-created GLOBAL selector defaults to
+                        // DIRECT (sorted member list); point it at the selected
+                        // node or global mode routes all traffic direct.
+                        if newMode == .global,
+                           let node = AppConstants.sharedDefaults.string(forKey: "selectedNode"),
+                           !node.isEmpty {
+                            try? await MihomoAPI.selectProxy(group: "GLOBAL", name: node)
+                        }
                     }
                     ConfigManager.shared.setMode(newMode.rawValue)
                 } else {

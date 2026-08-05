@@ -549,8 +549,18 @@ final class VPNManager: NSObject, ObservableObject {
                 guard let info = value as? [String: Any],
                       (info["type"] as? String) == "Selector",
                       let all = info["all"] as? [String],
-                      let first = all.first,
-                      !isBypassGroup(firstMember: first, groupMembers: groupMembers) else { continue }
+                      let first = all.first else { continue }
+                // GLOBAL is the engine's auto-created all-proxies selector; its
+                // sorted member list puts DIRECT first, which the bypass
+                // heuristic below would misread. Always push the node so
+                // global mode routes through it.
+                if name == "GLOBAL" {
+                    if all.contains(nodeName) {
+                        targets.append((name, nodeName))
+                    }
+                    continue
+                }
+                guard !isBypassGroup(firstMember: first, groupMembers: groupMembers) else { continue }
                 if all.contains(nodeName) {
                     targets.append((name, nodeName))
                 } else if let bypass = firstBypassMember(in: all, groupMembers: groupMembers) {
@@ -611,11 +621,15 @@ final class VPNManager: NSObject, ObservableObject {
                 in: yaml, key: "log-level", value: logLevel
             )
         }
-        if let mode = defaults.string(forKey: "proxyMode") {
-            yaml = ConfigManager.replacingTopLevelScalar(
-                in: yaml, key: "mode", value: mode
-            )
-        }
+        let mode = defaults.string(forKey: "proxyMode") ?? "rule"
+        yaml = ConfigManager.replacingTopLevelScalar(
+            in: yaml, key: "mode", value: mode
+        )
+        // Global mode routes everything through the GLOBAL selector. Define it
+        // with the selected node first — otherwise the engine auto-creates one
+        // whose sorted member list puts DIRECT first, so global mode would
+        // silently send all traffic direct.
+        yaml = ConfigManager.shared.updateGlobalProxyGroup(yaml, enabled: mode == "global")
 
         // Compress with zlib and store in providerConfiguration
         var providerConfig: [String: Any] = [:]

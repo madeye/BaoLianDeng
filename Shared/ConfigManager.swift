@@ -204,16 +204,6 @@ final class ConfigManager {
         try? saveConfig(config)
     }
 
-    /// Apply the saved mode to config.yaml. Call after applySelectedSubscription/sanitizeConfig.
-    func applyMode() {
-        let mode = AppConstants.sharedDefaults
-            .string(forKey: "proxyMode") ?? "rule"
-        guard var config = try? loadConfig() else { return }
-        config = Self.replacingTopLevelScalar(in: config, key: "mode", value: mode)
-        config = updateGlobalProxyGroup(config, enabled: mode == "global")
-        try? saveConfig(config)
-    }
-
     /// Return all proxy group names with type "select" from config.yaml.
     func selectProxyGroupNames() -> [String] {
         guard let yaml = try? loadConfig() else { return [] }
