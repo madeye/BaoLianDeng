@@ -166,7 +166,20 @@ struct HomeView: View {
 
     private var extensionStatusSection: some View {
         Section {
-            if !vpnManager.extensionEnabled {
+            if vpnManager.engineMode == .localProxy {
+                if vpnManager.isConnected {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(String(
+                            format: String(localized: "Local proxy running at %@"),
+                            "127.0.0.1:\(String(LocalProxyController.shared.mixedPort))"
+                        ))
+                        .font(.subheadline)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            } else if !vpnManager.extensionEnabled {
                 Button {
                     showExtensionHelp = true
                     vpnManager.checkExtensionStatus(forceRetry: true)

@@ -28,6 +28,10 @@ final class VPNManager: NSObject, ObservableObject {
     @Published var errorMessage: String?
     @Published var extensionEnabled = false
     @Published private(set) var systemExtensionInstallState: SystemExtensionInstallState = .notInstalled
+    /// How the engine is hosted: transparent-proxy extension (`.vpn`) or an
+    /// in-process local HTTP/SOCKS5 listener (`.localProxy`). Persisted in
+    /// UserDefaults; change via `setEngineMode`.
+    @Published private(set) var engineMode: EngineMode = .vpn
     private var activationRequestInFlight = false
     private var isLoadingManager = false
     private var didAttemptAutoStartAtLogin = false
@@ -52,9 +56,19 @@ final class VPNManager: NSObject, ObservableObject {
 
     private override init() {
         super.init()
+        engineMode = EngineMode.load(from: AppConstants.sharedDefaults)
         // Don't touch the system extension or the user's real NE preferences
         // when the app is only hosting unit tests.
         if AppConstants.isRunningUnitTests {
+            return
+        }
+        // Local proxy mode never touches the system extension or NE
+        // preferences — a local-only user should see no approval prompts
+        // or "add VPN configurations" dialogs.
+        if engineMode == .localProxy {
+            DispatchQueue.main.async { [weak self] in
+                self?.startAtLoginIfNeeded()
+            }
             return
         }
         #if canImport(SystemExtensions)
@@ -67,6 +81,23 @@ final class VPNManager: NSObject, ObservableObject {
         #else
         loadManager()
         #endif
+    }
+
+    /// Switch how the engine is hosted. Stops the currently running proxy
+    /// (either kind) first; the user reconnects explicitly in the new mode.
+    func setEngineMode(_ mode: EngineMode) {
+        guard mode != engineMode else { return }
+        if isConnected || isProcessing {
+            stop()
+        }
+        engineMode = mode
+        errorMessage = nil
+        AppConstants.sharedDefaults.set(mode.rawValue, forKey: AppConstants.engineModeKey)
+        dbg("setEngineMode: \(mode.rawValue)")
+        if mode == .vpn {
+            // Entering VPN mode may need extension activation + NE config.
+            checkExtensionStatus()
+        }
     }
 
     // MARK: - System Extension Activation
@@ -121,6 +152,7 @@ final class VPNManager: NSObject, ObservableObject {
     /// Check if the system extension is enabled by re-probing activation status.
     func checkExtensionStatus(forceRetry: Bool = false) {
         guard !AppConstants.isRunningUnitTests else { return }
+        guard engineMode == .vpn else { return }
         #if canImport(SystemExtensions)
         if Self.providerIsAppExtension {
             updateInstallState(.active)
@@ -311,6 +343,11 @@ final class VPNManager: NSObject, ObservableObject {
             return
         }
 
+        if engineMode == .localProxy {
+            startLocalProxy()
+            return
+        }
+
         isProcessing = true
         errorMessage = nil
 
@@ -417,8 +454,70 @@ final class VPNManager: NSObject, ObservableObject {
     }
 
     func stop() {
+        // Local engine stops synchronously; also handles the defensive case
+        // of a lingering in-process engine after a mode switch.
+        if LocalProxyController.shared.isRunning {
+            LocalProxyController.shared.stop()
+            status = .disconnected
+            isProcessing = false
+            return
+        }
+        if engineMode == .localProxy {
+            return
+        }
         isProcessing = true
         manager?.connection.stopVPNTunnel()
+    }
+
+    // MARK: - Local Proxy Mode
+
+    /// Start the engine in-process as a plain HTTP/SOCKS5 listener.
+    /// The non-transparent-proxy counterpart to the tunnel start path.
+    private func startLocalProxy() {
+        isProcessing = true
+        errorMessage = nil
+
+        // Ensure config exists before starting (same as the tunnel path)
+        if !ConfigManager.shared.configExists() {
+            do {
+                let defaultConfig = ConfigManager.shared.defaultConfig()
+                try ConfigManager.shared.saveConfig(defaultConfig)
+            } catch {
+                isProcessing = false
+                errorMessage = "Failed to create default config: \(error.localizedDescription)"
+                return
+            }
+        }
+
+        let yaml = buildEffectiveConfigYAML()
+        status = .connecting
+        dbg("startLocalProxy: port=\(AppConstants.localProxyPort)")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try LocalProxyController.shared.start(configYAML: yaml)
+                DispatchQueue.main.async {
+                    self?.isProcessing = false
+                    self?.status = .connected
+                    self?.selectSavedProxyNode()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.isProcessing = false
+                    self?.status = .disconnected
+                    self?.errorMessage = String(
+                        format: String(localized: "Failed to start local proxy: %@"),
+                        error.localizedDescription
+                    )
+                }
+            }
+        }
+    }
+
+    /// Stop + start the in-process engine so config changes take effect.
+    private func restartLocalProxy() {
+        LocalProxyController.shared.stop()
+        status = .disconnected
+        startLocalProxy()
     }
 
     func toggle() {
@@ -432,6 +531,13 @@ final class VPNManager: NSObject, ObservableObject {
     // MARK: - Send Message to Tunnel
 
     func sendMessage(_ message: [String: Any], completion: @escaping (Data?) -> Void) {
+        // Local mode: the engine lives in this process — answer directly
+        // instead of round-tripping through provider IPC.
+        if engineMode == .localProxy {
+            completion(LocalProxyController.shared.handleMessage(message))
+            return
+        }
+
         guard let session = manager?.connection as? NETunnelProviderSession else {
             completion(nil)
             return
@@ -455,6 +561,10 @@ final class VPNManager: NSObject, ObservableObject {
         // Update config on disk, then restart the tunnel so it picks up the change
         ConfigManager.shared.setMode(mode.rawValue)
         guard isConnected else { return }
+        if engineMode == .localProxy {
+            restartLocalProxy()
+            return
+        }
         isProcessing = true
         manager?.connection.stopVPNTunnel()
 
@@ -476,6 +586,9 @@ final class VPNManager: NSObject, ObservableObject {
     /// Returns true if the VPN was connected (caller should reconnect after fetching).
     func disconnectForFetch() async -> Bool {
         guard isConnected else { return false }
+        // A local proxy doesn't intercept this process's traffic — fetches
+        // already bypass it, so there is nothing to disconnect.
+        if engineMode == .localProxy { return false }
         manager?.connection.stopVPNTunnel()
         // Poll for disconnected state (up to 5s)
         for _ in 0..<50 {
@@ -662,10 +775,11 @@ final class VPNManager: NSObject, ObservableObject {
         }.resume()
     }
 
-    /// Build the full YAML config (base + subscription + user settings),
-    /// zlib-compress it, and pass via providerConfiguration to overcome the 512 KB IPC limit.
-    private func passSettingsToProvider() {
-        guard let proto = manager?.protocolConfiguration as? NETunnelProviderProtocol else { return }
+    /// Build the full effective YAML config: base + selected subscription +
+    /// selected node + user settings (log level, routing mode, GLOBAL group).
+    /// Shared by the tunnel path (compressed into providerConfiguration) and
+    /// the local proxy path (written straight to disk).
+    private func buildEffectiveConfigYAML() -> String {
         let defaults = AppConstants.sharedDefaults
 
         // Start with the base config
@@ -707,6 +821,16 @@ final class VPNManager: NSObject, ObservableObject {
         // whose sorted member list puts DIRECT first, so global mode would
         // silently send all traffic direct.
         yaml = ConfigManager.shared.updateGlobalProxyGroup(yaml, enabled: mode == "global")
+
+        return yaml
+    }
+
+    /// Build the full YAML config (base + subscription + user settings),
+    /// zlib-compress it, and pass via providerConfiguration to overcome the 512 KB IPC limit.
+    private func passSettingsToProvider() {
+        guard let proto = manager?.protocolConfiguration as? NETunnelProviderProtocol else { return }
+        let defaults = AppConstants.sharedDefaults
+        let yaml = buildEffectiveConfigYAML()
 
         // Compress with zlib and store in providerConfiguration
         var providerConfig: [String: Any] = [:]
@@ -762,6 +886,10 @@ final class VPNManager: NSObject, ObservableObject {
     /// Restart the tunnel if currently connected so new settings take effect.
     func restartIfConnected() {
         guard isConnected else { return }
+        if engineMode == .localProxy {
+            restartLocalProxy()
+            return
+        }
         isProcessing = true
         manager?.connection.stopVPNTunnel()
         DispatchQueue.global().async { [weak self] in

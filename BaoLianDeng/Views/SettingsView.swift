@@ -13,6 +13,8 @@ struct SettingsView: View {
     private var appLanguage = ""
     @AppStorage(AppConstants.autoStartVPNAtLoginKey, store: AppConstants.sharedDefaults)
     private var autoStartVPNAtLogin = false
+    @AppStorage(AppConstants.localProxyPortKey, store: AppConstants.sharedDefaults)
+    private var localProxyPort = AppConstants.defaultLocalProxyPort
     @State private var startupErrorMessage: String?
 
     var body: some View {
@@ -51,7 +53,13 @@ struct SettingsView: View {
                 }
             }
 
-            PerAppProxySection()
+            proxyMethodSection
+
+            // Per-app filtering only exists on the flow-interception path;
+            // a local proxy sees whatever apps are pointed at it.
+            if vpnManager.engineMode == .vpn {
+                PerAppProxySection()
+            }
 
             LANSharingSection()
 
@@ -82,6 +90,50 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+    }
+
+    // MARK: - Proxy Method
+
+    private var proxyMethodSection: some View {
+        Section {
+            Picker("Proxy Method", selection: Binding(
+                get: { vpnManager.engineMode },
+                set: { vpnManager.setEngineMode($0) }
+            )) {
+                ForEach(EngineMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+
+            if vpnManager.engineMode == .localProxy {
+                TextField(
+                    "Local Proxy Port",
+                    value: $localProxyPort,
+                    format: .number.grouping(.never)
+                )
+                if vpnManager.isConnected {
+                    LabeledContent(
+                        "Proxy Address",
+                        value: "127.0.0.1:\(String(LocalProxyController.shared.mixedPort))"
+                    )
+                }
+            }
+        } header: {
+            Text("Proxy Method")
+        } footer: {
+            if vpnManager.engineMode == .localProxy {
+                Text("Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no system extension or VPN configuration needed. Apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.")
+            } else {
+                Text("Intercepts all traffic system-wide via the Network Extension.")
+            }
+        }
+        .onChange(of: localProxyPort) { _, newValue in
+            // Clamp obviously invalid entries; the running engine keeps its
+            // port until the next start.
+            if !(1...65535).contains(newValue) {
+                localProxyPort = AppConstants.defaultLocalProxyPort
+            }
+        }
     }
 
     private func updateLoginItem(enabled: Bool, previousValue: Bool) {
