@@ -214,12 +214,10 @@ struct HomeView: View {
                     Task {
                         try? await MihomoAPI.switchMode(newMode.rawValue)
                         // The engine's auto-created GLOBAL selector defaults to
-                        // DIRECT (sorted member list); point it at the selected
-                        // node or global mode routes all traffic direct.
-                        if newMode == .global,
-                           let node = AppConstants.sharedDefaults.string(forKey: "selectedNode"),
-                           !node.isEmpty {
-                            try? await MihomoAPI.selectProxy(group: "GLOBAL", name: node)
+                        // DIRECT (sorted member list); point it at a real
+                        // target or global mode routes all traffic direct.
+                        if newMode == .global {
+                            vpnManager.syncGlobalSelector()
                         }
                     }
                     ConfigManager.shared.setMode(newMode.rawValue)

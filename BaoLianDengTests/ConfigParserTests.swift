@@ -313,7 +313,9 @@ struct ForceManagedDNSTests {
     }
 }
 
-@Suite("Proxy group serialization")
+// Serialized: several tests here save/restore the shared "selectedNode"
+// default, which races under parallel execution.
+@Suite("Proxy group serialization", .serialized)
 struct ProxyGroupSerializationTests {
 
     @Test("Quotes editable proxy group string values")
@@ -377,6 +379,89 @@ struct ProxyGroupSerializationTests {
         #expect(globalNameCount == 1)
         #expect(updated.contains("      - \"node #1\\nnext\""))
         #expect(!updated.contains("      - old"))
+        // Fallback members: the first non-bypass select group, then DIRECT,
+        // in case the saved node name is stale.
+        #expect(updated.contains("      - \"PROXY\""))
+        #expect(updated.contains("      - \"DIRECT\""))
+    }
+
+    @Test("Global proxy group falls back to select group when no node saved")
+    func globalProxyGroupFallsBackToSelectGroup() {
+        let defaults = AppConstants.sharedDefaults
+        let previous = defaults.string(forKey: "selectedNode")
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: "selectedNode")
+            } else {
+                defaults.removeObject(forKey: "selectedNode")
+            }
+        }
+        defaults.removeObject(forKey: "selectedNode")
+
+        let yaml = """
+        proxy-groups:
+          - name: Bypass
+            type: select
+            proxies:
+              - DIRECT
+              - node1
+          - name: Choice
+            type: select
+            proxies:
+              - node1
+              - DIRECT
+        rules:
+          - MATCH,Choice
+        """
+
+        let updated = ConfigManager.shared.updateGlobalProxyGroup(yaml, enabled: true)
+        let parsed = ConfigManager.shared.parseProxyGroups(from: updated)
+        let global = parsed.first { $0.name == "GLOBAL" }
+
+        // Bypass (DIRECT-first) is skipped; GLOBAL heads with the first
+        // non-bypass select group, then DIRECT.
+        #expect(global?.proxies == ["Choice", "DIRECT"])
+    }
+
+    @Test("Global proxy group falls back to MATCH target when every group is DIRECT-first")
+    func globalProxyGroupFallsBackToMatchTarget() {
+        let defaults = AppConstants.sharedDefaults
+        let previous = defaults.string(forKey: "selectedNode")
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: "selectedNode")
+            } else {
+                defaults.removeObject(forKey: "selectedNode")
+            }
+        }
+        // Stale node: saved name no longer exists in the subscription.
+        defaults.set("Old Node 05", forKey: "selectedNode")
+
+        // Common subscription shape: every select group lists DIRECT first,
+        // so the bypass heuristic matches all of them.
+        let yaml = """
+        proxy-groups:
+          - name: Choice
+            type: select
+            proxies:
+              - DIRECT
+              - node1
+          - name: Fish
+            type: select
+            proxies:
+              - DIRECT
+              - Choice
+        rules:
+          - MATCH,Fish
+        """
+
+        let updated = ConfigManager.shared.updateGlobalProxyGroup(yaml, enabled: true)
+        let parsed = ConfigManager.shared.parseProxyGroups(from: updated)
+        let global = parsed.first { $0.name == "GLOBAL" }
+
+        // Stale node stays listed (the engine's lenient parser drops it),
+        // followed by the MATCH rule's target group, then DIRECT.
+        #expect(global?.proxies == ["Old Node 05", "Fish", "DIRECT"])
     }
 
 }

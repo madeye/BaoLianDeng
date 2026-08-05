@@ -307,15 +307,42 @@ final class ConfigManager {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("proxy-groups:")
         }) else { return lines.joined(separator: "\n") }
 
+        // The saved node name can be stale after a subscription refresh renames
+        // nodes (the engine's lenient parser silently drops missing members),
+        // so list fallbacks after it: the MATCH rule's target group — global
+        // mode then routes everything the way rule mode routes unmatched
+        // traffic, including the user's persisted group selections — then the
+        // first non-bypass select group, then DIRECT as a last resort.
+        var members: [String] = []
+        if let node = selectedNode, !node.isEmpty {
+            members.append(node)
+        }
+        let stripped = lines.joined(separator: "\n")
+        let groups = parseProxyGroups(from: stripped)
+        let groupMembers = Dictionary(groups.map { ($0.name, $0.proxies) }) { first, _ in first }
+        if let matchTarget = parseRules(from: stripped).last(where: { $0.type == "MATCH" })?.target,
+           groups.contains(where: { $0.name == matchTarget }),
+           !members.contains(matchTarget) {
+            members.append(matchTarget)
+        }
+        if let fallback = groups.first(where: { group in
+            guard group.type == "select", group.name != "GLOBAL",
+                  let first = group.proxies.first else { return false }
+            return !isBypassGroup(firstMember: first, groupMembers: groupMembers)
+        }), !members.contains(fallback.name) {
+            members.append(fallback.name)
+        }
+        if !members.contains("DIRECT") {
+            members.append("DIRECT")
+        }
+
         var globalGroup = [
             "  - name: \(Self.yamlQuotedString("GLOBAL"))",
             "    type: select",
             "    proxies:",
         ]
-        if let node = selectedNode, !node.isEmpty {
-            globalGroup.append("      - \(Self.yamlQuotedString(node))")
-        } else {
-            globalGroup.append("      - DIRECT")
+        for member in members {
+            globalGroup.append("      - \(Self.yamlQuotedString(member))")
         }
 
         lines.insert(contentsOf: globalGroup, at: pgIdx + 1)
