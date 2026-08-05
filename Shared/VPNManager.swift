@@ -549,8 +549,18 @@ final class VPNManager: NSObject, ObservableObject {
                 guard let info = value as? [String: Any],
                       (info["type"] as? String) == "Selector",
                       let all = info["all"] as? [String],
-                      let first = all.first,
-                      !isBypassGroup(firstMember: first, groupMembers: groupMembers) else { continue }
+                      let first = all.first else { continue }
+                // GLOBAL is the engine's auto-created all-proxies selector; its
+                // sorted member list puts DIRECT first, which the bypass
+                // heuristic below would misread. Always push the node so
+                // global mode routes through it.
+                if name == "GLOBAL" {
+                    if all.contains(nodeName) {
+                        targets.append((name, nodeName))
+                    }
+                    continue
+                }
+                guard !isBypassGroup(firstMember: first, groupMembers: groupMembers) else { continue }
                 if all.contains(nodeName) {
                     targets.append((name, nodeName))
                 } else if let bypass = firstBypassMember(in: all, groupMembers: groupMembers) {
@@ -572,6 +582,83 @@ final class VPNManager: NSObject, ObservableObject {
                     }
                 }.resume()
             }
+        }.resume()
+    }
+
+    /// Point the engine's GLOBAL selector at a real target so global mode
+    /// routes through the proxy instead of GLOBAL's default (DIRECT, the
+    /// first entry of its sorted member list). Prefers the saved node, but
+    /// that name can be stale after a subscription refresh renames nodes —
+    /// then falls back to the largest non-bypass selector group (the
+    /// subscription's node-choice group), which tracks future node changes.
+    func syncGlobalSelector() {
+        guard let url = AppConstants.externalControllerURL(pathSegments: ["proxies"]) else { return }
+        URLSession.shared.dataTask(with: AppConstants.authorizedControllerRequest(url: url)) { [weak self] data, _, _ in
+            guard let self = self, let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let proxies = json["proxies"] as? [String: Any],
+                  let global = proxies["GLOBAL"] as? [String: Any],
+                  let globalMembers = global["all"] as? [String] else { return }
+
+            let groupTypes: Set<String> = ["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]
+            var groupMembers: [String: [String]] = [:]
+            for (name, value) in proxies {
+                guard let info = value as? [String: Any],
+                      let type = info["type"] as? String,
+                      groupTypes.contains(type),
+                      let all = info["all"] as? [String] else { continue }
+                groupMembers[name] = all
+            }
+
+            var target: String?
+            let saved = AppConstants.sharedDefaults.string(forKey: "selectedNode")
+            if let saved = saved, !saved.isEmpty, globalMembers.contains(saved) {
+                target = saved
+            } else {
+                // A selector group whose current selection chain ends at a
+                // real proxy node reflects what the user routes through today.
+                // Prefer the largest such group (the subscription's node-choice
+                // group); the bypass heuristic is useless here because many
+                // subscriptions list DIRECT first in every group.
+                func resolvesToProxy(_ name: String, depth: Int = 0) -> Bool {
+                    if depth > 8 || name == "DIRECT" || name.hasPrefix("REJECT") { return false }
+                    guard let info = proxies[name] as? [String: Any] else { return false }
+                    if let now = info["now"] as? String, !now.isEmpty {
+                        return resolvesToProxy(now, depth: depth + 1)
+                    }
+                    return groupMembers[name] == nil
+                }
+                target = proxies
+                    .compactMap { name, value -> (name: String, size: Int)? in
+                        guard name != "GLOBAL",
+                              let info = value as? [String: Any],
+                              (info["type"] as? String) == "Selector",
+                              let all = info["all"] as? [String],
+                              globalMembers.contains(name),
+                              resolvesToProxy(name) else { return nil }
+                        return (name, all.count)
+                    }
+                    .sorted { $0.size == $1.size ? $0.name < $1.name : $0.size > $1.size }
+                    .first?.name
+            }
+
+            guard let selection = target else {
+                self.dbg("syncGlobalSelector: no valid target for GLOBAL")
+                return
+            }
+            self.dbg("syncGlobalSelector: GLOBAL=\(selection)")
+            guard let putURL = AppConstants.externalControllerURL(pathSegments: ["proxies", "GLOBAL"]),
+                  let body = try? JSONSerialization.data(withJSONObject: ["name": selection]) else { return }
+            var request = AppConstants.authorizedControllerRequest(url: putURL, method: "PUT")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+            URLSession.shared.dataTask(with: request) { [weak self] _, response, putError in
+                if let putError = putError {
+                    self?.dbg("syncGlobalSelector: \(putError.localizedDescription)")
+                } else if let http = response as? HTTPURLResponse {
+                    self?.dbg("syncGlobalSelector: PUT \(http.statusCode)")
+                }
+            }.resume()
         }.resume()
     }
 
@@ -611,11 +698,15 @@ final class VPNManager: NSObject, ObservableObject {
                 in: yaml, key: "log-level", value: logLevel
             )
         }
-        if let mode = defaults.string(forKey: "proxyMode") {
-            yaml = ConfigManager.replacingTopLevelScalar(
-                in: yaml, key: "mode", value: mode
-            )
-        }
+        let mode = defaults.string(forKey: "proxyMode") ?? "rule"
+        yaml = ConfigManager.replacingTopLevelScalar(
+            in: yaml, key: "mode", value: mode
+        )
+        // Global mode routes everything through the GLOBAL selector. Define it
+        // with the selected node first — otherwise the engine auto-creates one
+        // whose sorted member list puts DIRECT first, so global mode would
+        // silently send all traffic direct.
+        yaml = ConfigManager.shared.updateGlobalProxyGroup(yaml, enabled: mode == "global")
 
         // Compress with zlib and store in providerConfiguration
         var providerConfig: [String: Any] = [:]
