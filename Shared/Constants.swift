@@ -29,6 +29,25 @@ enum AppConstants {
     static let perAppProxySettingsKey = "perAppProxySettings"
     static let lanSharingSettingsKey = "lanSharingSettings"
     static let autoStartVPNAtLoginKey = "autoStartVPNAtLogin"
+    /// UserDefaults key holding the selected `EngineMode` raw value.
+    /// Absent means `.vpn` (the transparent-proxy system extension).
+    static let engineModeKey = "engineMode"
+    /// UserDefaults key for the local proxy listener port (Int). Unlike the
+    /// transparent-proxy path (ephemeral, internal-only ports), local proxy
+    /// mode is user-facing: apps are pointed at this port manually, so it
+    /// must be stable across restarts.
+    static let localProxyPortKey = "localProxyPort"
+    static let defaultLocalProxyPort = 7890
+
+    /// The local proxy port currently configured in Settings, clamped to the
+    /// valid range with the default as fallback.
+    static var localProxyPort: UInt16 {
+        let stored = sharedDefaults.integer(forKey: localProxyPortKey)
+        guard (1...65535).contains(stored) else {
+            return UInt16(defaultLocalProxyPort)
+        }
+        return UInt16(stored)
+    }
 
     /// Live mihomo REST controller address (`host:port`). Returns nil when
     /// the tunnel hasn't run yet this install — callers should treat that
@@ -137,6 +156,14 @@ enum EphemeralPort {
         return nil
     }
 
+    /// True when `port` can currently be bound on 127.0.0.1 TCP. Used to
+    /// fail local-proxy startup with a clear error — the engine binds its
+    /// mixed listener inside a spawned task where a failure only reaches
+    /// the log.
+    static func isTCPPortFree(_ port: UInt16) -> Bool {
+        bindThenClose(type: SOCK_STREAM, proto: IPPROTO_TCP, port: port)
+    }
+
     private static func pick(type: Int32, proto: Int32) -> UInt16? {
         let fd = socket(AF_INET, type, proto)
         guard fd >= 0 else { return nil }
@@ -167,6 +194,15 @@ enum EphemeralPort {
         let fd = socket(AF_INET, type, proto)
         guard fd >= 0 else { return false }
         defer { close(fd) }
+        // Match the engine's listener (tokio sets SO_REUSEADDR on Unix):
+        // without it, a port whose previous server left connections in
+        // TIME_WAIT (the proxy actively closes client sockets on every
+        // stop) fails this check with EADDRINUSE for ~30s even though the
+        // engine itself could bind fine — a false "port in use" error.
+        // An actively listening socket on the same addr:port still fails,
+        // so real conflicts are unaffected.
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
@@ -178,6 +214,29 @@ enum EphemeralPort {
             }
         }
         return bindOK == 0
+    }
+}
+
+/// How the proxy engine is hosted. `.vpn` runs it inside the
+/// NETransparentProxyProvider extension and intercepts all traffic;
+/// `.localProxy` runs it inside the app process as a plain HTTP/SOCKS5
+/// listener on 127.0.0.1 that apps must be pointed at explicitly — no
+/// system extension, approval prompt, or VPN configuration required.
+enum EngineMode: String, CaseIterable, Identifiable {
+    case vpn = "vpn"
+    case localProxy = "local"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .vpn: return String(localized: "VPN (System-wide)")
+        case .localProxy: return String(localized: "Local Proxy Only")
+        }
+    }
+
+    static func load(from defaults: UserDefaults) -> EngineMode {
+        EngineMode(rawValue: defaults.string(forKey: AppConstants.engineModeKey) ?? "") ?? .vpn
     }
 }
 

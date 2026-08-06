@@ -344,27 +344,15 @@ pub unsafe extern "C" fn bridge_validate_config(yaml: *const c_char) -> i32 {
 // Lifecycle.
 // ---------------------------------------------------------------------------
 
+/// Start the engine. SOCKS/DNS/controller bind loopback at the given ports.
+/// LAN exposure is driven by the YAML (`allow-lan` / `bind-address` /
+/// `mixed-port`) — see [`engine::assemble`].
 #[no_mangle]
 pub unsafe extern "C" fn bridge_start_with_ports(
     socks_port: i32,
     dns_port: i32,
     controller_addr: *const c_char,
     secret: *const c_char,
-) -> i32 {
-    bridge_start_with_lan(socks_port, dns_port, controller_addr, secret, 0)
-}
-
-/// Like [`bridge_start_with_ports`], additionally exposing a mixed
-/// (SOCKS5+HTTP) listener on `0.0.0.0:<lan_proxy_port>` so other LAN
-/// devices can use this machine as their proxy server ("allow LAN").
-/// 0 disables the LAN listener; the loopback listeners are unaffected.
-#[no_mangle]
-pub unsafe extern "C" fn bridge_start_with_lan(
-    socks_port: i32,
-    dns_port: i32,
-    controller_addr: *const c_char,
-    secret: *const c_char,
-    lan_proxy_port: i32,
 ) -> i32 {
     guard(-1, || {
         let mut engine = ENGINE.lock();
@@ -403,7 +391,6 @@ pub unsafe extern "C" fn bridge_start_with_lan(
             dns_port,
             addr,
             secret_s,
-            lan_proxy_port,
         )) {
             Ok(state) => {
                 *engine = Some(state);
@@ -821,42 +808,71 @@ rules:
         assert!(!err.contains(&a_str), "resolved stale home A: {err}");
     }
 
+    /// Write a config with Clash-style allow-lan + mixed-port for LAN tests.
+    fn write_lan_config(dir: &std::path::Path, mixed_port: i32) {
+        let yaml = format!(
+            "mixed-port: {mixed_port}\n\
+             allow-lan: true\n\
+             bind-address: 0.0.0.0\n\
+             mode: rule\n\
+             dns:\n\
+               enable: true\n\
+               listen: 127.0.0.1:1053\n\
+               enhanced-mode: fake-ip\n\
+               fake-ip-range: 28.0.0.0/8\n\
+               nameserver:\n\
+                 - 127.0.0.1:5353\n\
+             proxies: []\n\
+             proxy-groups: []\n\
+             rules:\n\
+               - MATCH,DIRECT\n"
+        );
+        std::fs::write(dir.join("config.yaml"), yaml).unwrap();
+    }
+
+    fn wait_accept(addr: &str) -> bool {
+        for _ in 0..20 {
+            if std::net::TcpStream::connect(addr).is_ok() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        false
+    }
+
     #[test]
     fn lan_listeners_start_and_serve() {
         let _g = TEST_LOCK.lock();
 
         let dir = std::env::temp_dir().join(format!("meow-ffi-lan-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("config.yaml"), MINIMAL_CONFIG).unwrap();
-        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
-        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
-
         let socks = free_port();
         let dns = free_port();
         let ctrl = free_port();
         let lan_proxy = free_port();
+        write_lan_config(&dir, lan_proxy);
+        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
+
         let ctrl_c = CString::new(format!("127.0.0.1:{ctrl}")).unwrap();
         let secret_c = CString::new("").unwrap();
 
-        let rc = unsafe {
-            bridge_start_with_lan(socks, dns, ctrl_c.as_ptr(), secret_c.as_ptr(), lan_proxy)
-        };
+        let rc = unsafe { bridge_start_with_ports(socks, dns, ctrl_c.as_ptr(), secret_c.as_ptr()) };
         let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
             .to_str()
             .unwrap()
             .to_string();
         assert_eq!(rc, 0, "LAN start failed: {err}");
 
-        // The LAN mixed listener must accept TCP (0.0.0.0 covers loopback).
-        let mut connected = false;
-        for _ in 0..20 {
-            if std::net::TcpStream::connect(format!("127.0.0.1:{lan_proxy}")).is_ok() {
-                connected = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        assert!(connected, "LAN mixed listener not accepting on {lan_proxy}");
+        // Internal SOCKS stays loopback; LAN mixed is on the YAML mixed-port.
+        assert!(
+            wait_accept(&format!("127.0.0.1:{socks}")),
+            "loopback mixed not accepting on {socks}"
+        );
+        assert!(
+            wait_accept(&format!("127.0.0.1:{lan_proxy}")),
+            "LAN mixed listener not accepting on {lan_proxy}"
+        );
 
         bridge_stop_proxy();
         assert!(!bridge_is_running());
@@ -869,24 +885,18 @@ rules:
 
         let dir = std::env::temp_dir().join(format!("meow-ffi-lanbusy-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("config.yaml"), MINIMAL_CONFIG).unwrap();
-        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
-        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
 
         // Occupy a port on 0.0.0.0 so the LAN preflight bind must fail.
         let blocker = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
         let busy = blocker.local_addr().unwrap().port() as i32;
+        write_lan_config(&dir, busy);
+        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
 
         let ctrl_c = CString::new(format!("127.0.0.1:{}", free_port())).unwrap();
         let secret_c = CString::new("").unwrap();
         let rc = unsafe {
-            bridge_start_with_lan(
-                free_port(),
-                free_port(),
-                ctrl_c.as_ptr(),
-                secret_c.as_ptr(),
-                busy,
-            )
+            bridge_start_with_ports(free_port(), free_port(), ctrl_c.as_ptr(), secret_c.as_ptr())
         };
         let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
             .to_str()
@@ -897,6 +907,41 @@ rules:
         assert!(!bridge_is_running());
 
         drop(blocker);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Local-proxy mode shape: allow-lan + mixed-port == socks_port merges into
+    // a single 0.0.0.0 listener serving loopback and LAN clients alike.
+    #[test]
+    fn lan_same_port_merges_into_single_listener() {
+        let _g = TEST_LOCK.lock();
+
+        let dir = std::env::temp_dir().join(format!("meow-ffi-lanmerge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socks = free_port();
+        let dns = free_port();
+        let ctrl = free_port();
+        write_lan_config(&dir, socks);
+        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
+
+        let ctrl_c = CString::new(format!("127.0.0.1:{ctrl}")).unwrap();
+        let secret_c = CString::new("").unwrap();
+
+        let rc = unsafe { bridge_start_with_ports(socks, dns, ctrl_c.as_ptr(), secret_c.as_ptr()) };
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, 0, "merged LAN start failed: {err}");
+
+        assert!(
+            wait_accept(&format!("127.0.0.1:{socks}")),
+            "merged listener not accepting on {socks}"
+        );
+
+        bridge_stop_proxy();
+        assert!(!bridge_is_running());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

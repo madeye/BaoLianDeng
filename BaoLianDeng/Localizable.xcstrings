@@ -271,6 +271,26 @@
         }
       }
     },
+    "Could not allocate internal ports for the proxy engine.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法为代理引擎分配内部端口。"
+          }
+        }
+      }
+    },
+    "Could not resolve the configuration directory.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法定位配置目录。"
+          }
+        }
+      }
+    },
     "Current Session (Proxy Only)": {
       "localizations": {
         "zh-Hans": {
@@ -466,6 +486,16 @@
       },
       "extractionState": "manual"
     },
+    "Failed to start local proxy: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动本地代理失败：%@"
+          }
+        }
+      }
+    },
     "fallback": {
       "localizations": {
         "zh-Hans": {
@@ -617,6 +647,16 @@
         }
       }
     },
+    "Intercepts all traffic system-wide via the Network Extension.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过网络扩展在系统范围内拦截所有流量。"
+          }
+        }
+      }
+    },
     "Interval": {
       "localizations": {
         "zh-Hans": {
@@ -697,6 +737,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "本地配置"
+          }
+        }
+      }
+    },
+    "Local Proxy Only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅本地代理"
+          }
+        }
+      }
+    },
+    "Local Proxy Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地代理端口"
+          }
+        }
+      }
+    },
+    "Local proxy port %@ is already in use.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地代理端口 %@ 已被占用。"
+          }
+        }
+      }
+    },
+    "Local proxy running at %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地代理运行于 %@"
           }
         }
       }
@@ -907,6 +987,26 @@
         }
       }
     },
+    "Proxy Address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理地址"
+          }
+        }
+      }
+    },
+    "Proxy Method": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理方式"
+          }
+        }
+      }
+    },
     "Proxy Groups": {
       "localizations": {
         "zh-Hans": {
@@ -1058,6 +1158,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "规则 (%lld)"
+          }
+        }
+      }
+    },
+    "Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no system extension or VPN configuration needed. Apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在应用内运行代理引擎，在 127.0.0.1 上提供 HTTP/SOCKS5 代理——无需系统扩展或 VPN 配置。应用需手动设置使用该代理。切换方式或端口将在下次启动时生效。"
           }
         }
       }
@@ -1422,6 +1532,16 @@
         }
       },
       "extractionState": "manual"
+    },
+    "VPN (System-wide)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN（全局接管）"
+          }
+        }
+      }
     },
     "While the VPN is connected, other devices on your network can use this Mac as their SOCKS5/HTTP proxy server on the proxy port. Anyone on the local network can use the proxy \u2014 enable only on networks you trust.": {
       "localizations": {

@@ -79,10 +79,27 @@ enum ProxyEngineHelper {
         socksPort: UInt16,
         timeout: Int = 10
     ) -> (output: String, exitCode: Int32) {
+        curl(url: url, proxyArgs: ["--socks5", "127.0.0.1:\(socksPort)"], timeout: timeout)
+    }
+
+    /// Run curl through the HTTP side of the mixed listener — the path
+    /// local-proxy-mode clients configured with an HTTP proxy take.
+    static func curlThroughHTTPProxy(
+        url: String,
+        proxyPort: UInt16,
+        timeout: Int = 10
+    ) -> (output: String, exitCode: Int32) {
+        curl(url: url, proxyArgs: ["--proxy", "http://127.0.0.1:\(proxyPort)"], timeout: timeout)
+    }
+
+    private static func curl(
+        url: String,
+        proxyArgs: [String],
+        timeout: Int
+    ) -> (output: String, exitCode: Int32) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        process.arguments = [
-            "--socks5", "127.0.0.1:\(socksPort)",
+        process.arguments = proxyArgs + [
             "--silent",
             "--max-time", "\(timeout)",
             "--write-out", "%{http_code}",

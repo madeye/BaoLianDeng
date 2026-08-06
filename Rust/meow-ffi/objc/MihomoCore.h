@@ -6,11 +6,10 @@ FOUNDATION_EXPORT void BridgeSetLogFile(NSString * _Nullable path);
 /// ports. The caller (main app) picks the ports up-front so its REST
 /// clients know the controller endpoint without an IPC round-trip.
 /// `controllerAddr` is `host:port`.
+///
+/// LAN exposure is Clash-compatible and comes from the YAML config
+/// (`allow-lan` / `bind-address` / `mixed-port`), not from this call.
 FOUNDATION_EXPORT BOOL BridgeStartWithPorts(int32_t socksPort, int32_t dnsPort, NSString * _Nonnull controllerAddr, NSString * _Nullable secret, NSError * _Nullable * _Nullable error);
-/// Like BridgeStartWithPorts, additionally exposing a mixed (SOCKS5+HTTP)
-/// listener on 0.0.0.0:lanProxyPort so LAN clients can use this machine as
-/// their proxy server. Pass 0 to disable the LAN listener.
-FOUNDATION_EXPORT BOOL BridgeStartWithLAN(int32_t socksPort, int32_t dnsPort, NSString * _Nonnull controllerAddr, NSString * _Nullable secret, int32_t lanProxyPort, NSError * _Nullable * _Nullable error);
 FOUNDATION_EXPORT void BridgeStopProxy(void);
 FOUNDATION_EXPORT BOOL BridgeIsRunning(void);
 
@@ -33,4 +32,3 @@ FOUNDATION_EXPORT NSString * _Nonnull BridgeTestDirectTCP(NSString * _Nullable h
 FOUNDATION_EXPORT NSString * _Nonnull BridgeTestProxyHTTP(NSString * _Nullable targetURL);
 FOUNDATION_EXPORT NSString * _Nonnull BridgeTestDNSResolver(NSString * _Nullable dnsAddr);
 FOUNDATION_EXPORT NSString * _Nonnull BridgeTestSelectedProxy(NSString * _Nullable apiAddr);
-

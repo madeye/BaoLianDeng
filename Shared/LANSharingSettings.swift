@@ -4,10 +4,11 @@
 
 import Foundation
 
-/// "Allow LAN" settings. When enabled, the engine additionally binds a mixed
-/// SOCKS5/HTTP listener on `0.0.0.0`, so other devices on the local network
-/// can use this Mac as their proxy server. Stored as JSON in shared
-/// UserDefaults and forwarded to the extension via providerConfiguration.
+/// "Allow LAN" settings. When enabled, the effective engine config gets
+/// Clash-compatible `allow-lan: true`, `bind-address: 0.0.0.0`, and
+/// `mixed-port: <proxyPort>` so other devices on the local network can use
+/// this Mac as their SOCKS5/HTTP proxy. Stored as JSON in shared UserDefaults;
+/// applied in `VPNManager.buildEffectiveConfigYAML` (no separate FFI path).
 struct LANSharingSettings: Codable, Equatable {
     static let defaultProxyPort = 7890
 

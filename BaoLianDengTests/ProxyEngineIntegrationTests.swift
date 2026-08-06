@@ -101,6 +101,23 @@ struct ProxyEngineIntegrationTests {
         #expect(result.output == "204", "Should receive HTTP 204 from gstatic")
     }
 
+    @Test("HTTP request through HTTP proxy (mixed listener)")
+    func httpRequestThroughHTTPProxy() throws {
+        let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal)
+        defer { ProxyEngineHelper.stop(context: ctx) }
+
+        // The loopback listener is mixed SOCKS5+HTTP; local proxy mode
+        // points apps at its HTTP side, so exercise that here.
+        let result = ProxyEngineHelper.curlThroughHTTPProxy(
+            url: "http://www.gstatic.com/generate_204",
+            proxyPort: ctx.socksPort,
+            timeout: 10
+        )
+
+        #expect(result.exitCode == 0, "curl should exit successfully")
+        #expect(result.output == "204", "Should receive HTTP 204 from gstatic")
+    }
+
     @Test("Connection tracking via external controller")
     func connectionTracking() async throws {
         let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal)
