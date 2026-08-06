@@ -4,7 +4,9 @@
 //! `tokio::spawn` tasks and blocks on a signal), so this module hand-rolls the
 //! wiring and keeps every `JoinHandle` for abort-on-stop. The caller-supplied
 //! SOCKS/DNS/controller endpoints are forced onto the parsed config before any
-//! listener starts, ignoring whatever ports the YAML declared.
+//! listener starts, ignoring whatever ports the YAML declared — except
+//! Clash-compatible `allow-lan` / `bind-address` / `mixed-port`, which control
+//! whether a LAN-facing mixed listener is also exposed.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -38,12 +40,19 @@ pub struct EngineState {
 /// DNS server, REST API, and mixed (SOCKS5+HTTP) listener on the shared
 /// runtime. Returns the assembled [`EngineState`] with all task handles.
 ///
-/// `lan_proxy_port` > 0 additionally exposes a mixed (SOCKS5+HTTP) listener
-/// on `0.0.0.0` at that port, so other LAN devices can use this machine as
-/// their proxy server ("allow LAN"). The loopback listeners above are
-/// unaffected. The LAN port is bind-checked up-front so an occupied port
-/// fails engine start with a clear error instead of a warning buried in the
-/// log.
+/// SOCKS / DNS / controller ports always bind loopback at the caller-supplied
+/// addresses (transparent-proxy and REST clients need stable, private
+/// endpoints). LAN exposure is Clash-compatible and driven entirely by the
+/// YAML:
+///
+/// - `allow-lan: true` → additionally expose a mixed listener on
+///   `bind-address`:`mixed-port` (defaults: `0.0.0.0` and `socks_port`).
+/// - When that LAN port equals `socks_port`, the two merge into a single
+///   `0.0.0.0` listener (local-proxy mode: one port serves loopback + LAN).
+/// - DNS and the external controller stay loopback regardless of `allow-lan`.
+///
+/// The LAN port is bind-checked up-front so an occupied port fails engine
+/// start with a clear error instead of a warning buried in the log.
 pub async fn assemble(
     config_path: String,
     home: String,
@@ -51,7 +60,6 @@ pub async fn assemble(
     dns_port: i32,
     controller_addr: String,
     secret: String,
-    lan_proxy_port: i32,
 ) -> anyhow::Result<EngineState> {
     let mut config = load_config_pinned(&config_path, &home).await?;
 
@@ -75,24 +83,43 @@ pub async fn assemble(
         )
     };
 
+    // Clash-compatible allow-lan: read before we overwrite listeners.
+    // meow defaults bind-address to 127.0.0.1 even when allow-lan is true;
+    // treat that (and Clash's `*`) as "all interfaces".
+    let allow_lan = config.general.allow_lan;
+    let lan_bind = lan_bind_address(allow_lan, &config.general.bind_address);
+    let yaml_mixed = config.listeners.mixed_port.filter(|&p| p > 0);
+    let lan_proxy_port: u16 = if allow_lan {
+        yaml_mixed.unwrap_or(socks_addr.port())
+    } else {
+        0
+    };
+    let lan_merged = allow_lan && lan_proxy_port == socks_addr.port();
+
     config.listeners.named = vec![NamedListener {
         name: "mixed".to_string(),
         listener_type: ListenerType::Mixed,
         port: socks_addr.port(),
-        listen: "127.0.0.1".to_string(),
+        listen: if lan_merged {
+            lan_bind.clone()
+        } else {
+            "127.0.0.1".to_string()
+        },
         tproxy_sni: false,
         max_connections: 0,
     }];
-    validate_lan_port(lan_proxy_port, socks_port)?;
-    if lan_proxy_port > 0 {
-        config.listeners.named.push(NamedListener {
-            name: "mixed-lan".to_string(),
-            listener_type: ListenerType::Mixed,
-            port: lan_proxy_port as u16,
-            listen: "0.0.0.0".to_string(),
-            tproxy_sni: false,
-            max_connections: 0,
-        });
+    if allow_lan {
+        validate_lan_bind(&lan_bind, lan_proxy_port)?;
+        if !lan_merged {
+            config.listeners.named.push(NamedListener {
+                name: "mixed-lan".to_string(),
+                listener_type: ListenerType::Mixed,
+                port: lan_proxy_port,
+                listen: lan_bind.clone(),
+                tproxy_sni: false,
+                max_connections: 0,
+            });
+        }
     }
     config.listeners.mixed_port = Some(socks_addr.port());
     config.listeners.socks_port = None;
@@ -175,7 +202,7 @@ pub async fn assemble(
         }));
     }
 
-    // Mixed (SOCKS5 + HTTP) listener(s) — exactly one, forced above.
+    // Mixed (SOCKS5 + HTTP) listener(s) — primary (+ optional LAN) forced above.
     for nl in &config.listeners.named {
         let ip: IpAddr = nl
             .listen
@@ -195,7 +222,7 @@ pub async fn assemble(
 
     info!(
         "meow engine started: socks={socks_port} dns={dns_port} controller={controller_addr} \
-         lan_proxy={lan_proxy_port}"
+         allow_lan={allow_lan} lan_proxy={lan_proxy_port}"
     );
 
     Ok(EngineState {
@@ -207,26 +234,35 @@ pub async fn assemble(
     })
 }
 
+/// Resolve the LAN bind address from Clash-style `allow-lan` / `bind-address`.
+///
+/// meow defaults `bind-address` to `127.0.0.1` even when `allow-lan` is true;
+/// Clash treats missing/`*` as all interfaces. Map those to `0.0.0.0`.
+fn lan_bind_address(allow_lan: bool, bind_address: &str) -> String {
+    if !allow_lan {
+        return "127.0.0.1".to_string();
+    }
+    match bind_address.trim() {
+        "" | "*" | "127.0.0.1" | "::1" => "0.0.0.0".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// Validate the LAN proxy port and bind-check it up-front.
 ///
 /// The listener itself binds later inside a spawned task where a failure
 /// only reaches the log, so an occupied port is caught here with a test
 /// bind (bound then immediately dropped — the small TOCTOU window mirrors
 /// the app-side `EphemeralPort` picker and is acceptable).
-fn validate_lan_port(lan_proxy_port: i32, socks_port: i32) -> anyhow::Result<()> {
-    if !(0..=65535).contains(&lan_proxy_port) {
-        anyhow::bail!("LAN proxy port {lan_proxy_port} is out of range");
+fn validate_lan_bind(bind: &str, lan_proxy_port: u16) -> anyhow::Result<()> {
+    if lan_proxy_port == 0 {
+        anyhow::bail!("allow-lan requires a non-zero mixed-port");
     }
-    // A 0.0.0.0 bind covers loopback too, so sharing a port with the internal
-    // 127.0.0.1 listener can never work — reject it explicitly rather than
-    // letting the two binds race.
-    if lan_proxy_port > 0 && lan_proxy_port == socks_port {
-        anyhow::bail!("LAN proxy port {lan_proxy_port} collides with the internal SOCKS port");
-    }
-    if lan_proxy_port > 0 {
-        std::net::TcpListener::bind(("0.0.0.0", lan_proxy_port as u16))
-            .map_err(|e| anyhow::anyhow!("LAN proxy port {lan_proxy_port} unavailable: {e}"))?;
-    }
+    let ip: IpAddr = bind
+        .parse()
+        .map_err(|e| anyhow::anyhow!("allow-lan bind-address '{bind}': {e}"))?;
+    std::net::TcpListener::bind(SocketAddr::new(ip, lan_proxy_port))
+        .map_err(|e| anyhow::anyhow!("LAN proxy port {lan_proxy_port} unavailable: {e}"))?;
     Ok(())
 }
 

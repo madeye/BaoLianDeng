@@ -194,6 +194,15 @@ enum EphemeralPort {
         let fd = socket(AF_INET, type, proto)
         guard fd >= 0 else { return false }
         defer { close(fd) }
+        // Match the engine's listener (tokio sets SO_REUSEADDR on Unix):
+        // without it, a port whose previous server left connections in
+        // TIME_WAIT (the proxy actively closes client sockets on every
+        // stop) fails this check with EADDRINUSE for ~30s even though the
+        // engine itself could bind fine — a false "port in use" error.
+        // An actively listening socket on the same addr:port still fails,
+        // so real conflicts are unaffected.
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)

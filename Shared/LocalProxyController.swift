@@ -79,13 +79,10 @@ final class LocalProxyController {
 
         let controllerAddr = "127.0.0.1:\(ctrlPort)"
         let secret = AppConstants.generateControllerSecret() ?? ""
-        let lanSettings = LANSharingSettings.load(from: defaults)
-        let lanPort = lanSettings.enabled ? Int32(lanSettings.effectiveProxyPort) : 0
 
         var startError: NSError?
-        BridgeStartWithLAN(
-            Int32(port), Int32(dnsPort), controllerAddr, secret,
-            lanPort, &startError
+        BridgeStartWithPorts(
+            Int32(port), Int32(dnsPort), controllerAddr, secret, &startError
         )
         if let startError = startError {
             throw startError
@@ -101,7 +98,7 @@ final class LocalProxyController {
         mixedPort = port
         isRunning = true
         AppLogger.vpn.notice(
-            "Local proxy started: mixed=\(port) dns=\(dnsPort) controller=\(controllerAddr, privacy: .public) lan=\(lanPort)"
+            "Local proxy started: mixed=\(port) dns=\(dnsPort) controller=\(controllerAddr, privacy: .public)"
         )
     }
 

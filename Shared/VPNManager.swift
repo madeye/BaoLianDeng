@@ -793,7 +793,9 @@ final class VPNManager: NSObject, ObservableObject {
                let selectedID = UUID(uuidString: idString),
                let selected = subs.first(where: { $0.id == selectedID }),
                let raw = selected.rawContent {
-                yaml = ConfigManager.mergeSubscription(raw, baseConfig: yaml, defaultConfig: yaml)
+                yaml = ConfigManager.mergeSubscription(
+                    raw, baseConfig: yaml, defaultConfig: yaml, engineMode: engineMode
+                )
             }
         }
 
@@ -822,6 +824,29 @@ final class VPNManager: NSObject, ObservableObject {
         // silently send all traffic direct.
         yaml = ConfigManager.shared.updateGlobalProxyGroup(yaml, enabled: mode == "global")
 
+        // Clash-compatible allow-lan: engine reads these from YAML (no FFI arg).
+        // When enabled, mixed-port is the LAN-facing listener; in local-proxy
+        // mode it usually equals the user-facing mixed port and merges into
+        // one 0.0.0.0 bind. DNS + external-controller stay loopback either way.
+        let lan = LANSharingSettings.load(from: defaults)
+        yaml = ConfigManager.replacingTopLevelScalar(
+            in: yaml, key: "allow-lan", value: lan.enabled ? "true" : "false"
+        )
+        if lan.enabled {
+            yaml = ConfigManager.replacingTopLevelScalar(
+                in: yaml, key: "bind-address", value: "0.0.0.0"
+            )
+            yaml = ConfigManager.replacingTopLevelScalar(
+                in: yaml, key: "mixed-port", value: String(lan.effectiveProxyPort)
+            )
+        } else if engineMode == .localProxy {
+            // Document the local mixed port even without LAN; the bridge still
+            // forces the actual bind from the socks_port argument.
+            yaml = ConfigManager.replacingTopLevelScalar(
+                in: yaml, key: "mixed-port", value: String(AppConstants.localProxyPort)
+            )
+        }
+
         return yaml
     }
 
@@ -843,14 +868,6 @@ final class VPNManager: NSObject, ObservableObject {
         // Pass per-app proxy settings as a separate JSON blob
         if let perAppData = defaults.data(forKey: AppConstants.perAppProxySettingsKey) {
             providerConfig["perAppProxy"] = perAppData
-        }
-
-        // Allow LAN: forward the fixed LAN proxy port so the engine
-        // additionally binds on 0.0.0.0. An absent key means disabled.
-        let lanSettings = LANSharingSettings.load(from: defaults)
-        if lanSettings.enabled {
-            providerConfig["lanProxyPort"] = lanSettings.effectiveProxyPort
-            dbg("passSettings: allow LAN proxyPort=\(lanSettings.effectiveProxyPort)")
         }
 
         // Pick ephemeral 127.0.0.1 ports for the SOCKS5, DNS, and REST

@@ -311,6 +311,31 @@ struct ForceManagedDNSTests {
         #expect(!config.contains("stray comment"))
         #expect(config.contains("enhanced-mode: fake-ip"))
     }
+
+    @Test("Local proxy mode replaces fake-ip with redir-host")
+    func localProxyUsesRedirHost() {
+        var config = """
+        mixed-port: 7890
+        dns:
+          enable: true
+          enhanced-mode: fake-ip
+          fake-ip-range: 198.18.0.0/15
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config, engineMode: .localProxy)
+        #expect(config.contains("enhanced-mode: redir-host"))
+        #expect(!config.contains("fake-ip"))
+    }
+
+    @Test("Idempotent in local proxy mode")
+    func idempotentLocalProxy() {
+        var config = "mixed-port: 7890\n\(ConfigManager.managedLocalProxyDNSSection)\nproxies: []\n"
+        ConfigManager.forceManagedDNS(&config, engineMode: .localProxy)
+        let once = config
+        ConfigManager.forceManagedDNS(&config, engineMode: .localProxy)
+        #expect(config == once)
+        #expect(config.components(separatedBy: "dns:").count - 1 == 1)
+    }
 }
 
 // Serialized: several tests here save/restore the shared "selectedNode"
@@ -648,6 +673,29 @@ struct SanitizeConfigStringTests {
         let sanitized = config
         ConfigManager.sanitizeConfigString(&config)
         #expect(config == sanitized)
+    }
+
+    @Test("Local proxy mode disables fake-ip DNS and TUN")
+    func localProxyDisablesFakeIPAndTUN() {
+        var config = "tun:\n  enable: true\n  stack: system\n"
+            + ConfigManager.managedDNSSection + "\nproxies: []\n"
+        ConfigManager.sanitizeConfigString(&config, engineMode: .localProxy)
+        #expect(config.contains("enhanced-mode: redir-host"))
+        #expect(!config.contains("fake-ip"))
+        #expect(config.contains("tun:\n  enable: false"))
+        #expect(!config.contains("enable: true\n  stack"))
+    }
+
+    @Test("Injects an explicit disabled tun block when absent")
+    func injectsDisabledTunBlock() {
+        var config = "mode: rule\nproxies: []\nrules:\n  - MATCH,DIRECT"
+        ConfigManager.sanitizeConfigString(&config, engineMode: .localProxy)
+        #expect(config.contains("tun:\n  enable: false"))
+        // Idempotent: a second pass doesn't add another block.
+        let once = config
+        ConfigManager.sanitizeConfigString(&config, engineMode: .localProxy)
+        #expect(config == once)
+        #expect(config.components(separatedBy: "tun:").count - 1 == 1)
     }
 }
 

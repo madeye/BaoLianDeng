@@ -48,10 +48,11 @@ struct LANSharingSection: View {
         } footer: {
             Text(
                 """
-                While the VPN is connected, other devices on your network can use \
-                this Mac as their SOCKS5/HTTP proxy server on the proxy port. \
-                Anyone on the local network can use the proxy — enable only on \
-                networks you trust.
+                Writes Clash-compatible allow-lan into the engine config so \
+                other devices on your network can use this Mac as their \
+                SOCKS5/HTTP proxy on the proxy port. Anyone on the local \
+                network can use the proxy — enable only on networks you trust. \
+                Takes effect on the next start or reconnect.
                 """
             )
             .font(.footnote)

@@ -173,7 +173,9 @@ final class ConfigManager {
             throw ConfigError.sharedContainerUnavailable
         }
         var content = yaml
-        Self.sanitizeConfigString(&content)
+        // The provider extension never writes engineModeKey to its own
+        // (per-process) defaults, so it always sanitizes as .vpn.
+        Self.sanitizeConfigString(&content, engineMode: EngineMode.load(from: AppConstants.sharedDefaults))
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
@@ -423,7 +425,9 @@ final class ConfigManager {
     /// Sanitize a config string in-place (same rules as sanitizeConfig but on a String).
     /// Idempotent: re-running on an already-sanitized config is a no-op, since
     /// `saveConfig` calls this unconditionally on every write.
-    static func sanitizeConfigString(_ config: inout String) {
+    /// `engineMode` picks the managed DNS block (fake-ip for the transparent
+    /// proxy, redir-host for local proxy mode).
+    static func sanitizeConfigString(_ config: inout String, engineMode: EngineMode = .vpn) {
         // Disable TUN and geo-auto-update — transparent proxy intercepts at
         // socket level, and geo downloads would block tunnel startup.
         var lines = config.components(separatedBy: "\n")
@@ -443,7 +447,8 @@ final class ConfigManager {
         }
         config = lines.joined(separator: "\n")
         stripSubscriptionsSection(&config)
-        forceManagedDNS(&config)
+        forceManagedDNS(&config, engineMode: engineMode)
+        forceTunDisabled(&config)
     }
 
     /// DNS settings owned by the app/extension, mirroring meow-ios's
@@ -475,11 +480,33 @@ final class ConfigManager {
         - 223.5.5.5
     """
 
-    /// Replace any existing top-level `dns:` section with `managedDNSSection`,
-    /// inserting it ahead of `proxies:` (or at the end) to keep the header
-    /// layout stable. Idempotent: re-running on a managed config is a no-op
-    /// change in content.
-    static func forceManagedDNS(_ config: inout String) {
+    /// Managed DNS for local proxy mode. Nothing is intercepted there —
+    /// clients hand the engine real domains via the HTTP/SOCKS proxy
+    /// protocol and never query its DNS listener, so fake-ip answers would
+    /// only hand out unroutable 28.0.0.0/8 addresses (harmful if anything
+    /// did query, e.g. via Allow LAN). redir-host returns real upstream IPs
+    /// while the engine's sniffing cache still restores domains for rules.
+    static let managedLocalProxyDNSSection = """
+    dns:
+      enable: true
+      listen: 127.0.0.1:0
+      enhanced-mode: redir-host
+      # Bootstrap-only resolvers: proxy-server hostnames must resolve
+      # without going through a proxy (dial cycle otherwise).
+      default-nameserver:
+        - 223.5.5.5
+        - 114.114.114.114
+      nameserver:
+        - 119.29.29.29
+        - 223.5.5.5
+    """
+
+    /// Replace any existing top-level `dns:` section with the managed block
+    /// for `engineMode` (fake-ip for the transparent proxy, redir-host for
+    /// local proxy mode), inserting it ahead of `proxies:` (or at the end)
+    /// to keep the header layout stable. Idempotent: re-running on a managed
+    /// config is a no-op change in content.
+    static func forceManagedDNS(_ config: inout String, engineMode: EngineMode = .vpn) {
         var lines = config.components(separatedBy: "\n")
         if let start = lines.firstIndex(where: {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("dns:")
@@ -499,7 +526,9 @@ final class ConfigManager {
             }
             lines.removeSubrange(start..<end)
         }
-        let block = Self.managedDNSSection.components(separatedBy: "\n")
+        let section = engineMode == .localProxy
+            ? Self.managedLocalProxyDNSSection : Self.managedDNSSection
+        let block = section.components(separatedBy: "\n")
         if let idx = lines.firstIndex(where: {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("proxies:")
                 && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
@@ -511,6 +540,31 @@ final class ConfigManager {
                 lines.removeLast()
             }
             lines.append(contentsOf: [""] + block)
+        }
+        config = lines.joined(separator: "\n")
+    }
+
+    /// Ensure the config carries an explicit, disabled top-level `tun:`
+    /// block. Truthy `enable:` values in an existing block are already
+    /// rewritten to false by the sanitize passes; this injects the block
+    /// when absent so the effective config states the invariant outright
+    /// instead of relying on the engine's default. Idempotent.
+    static func forceTunDisabled(_ config: inout String) {
+        var lines = config.components(separatedBy: "\n")
+        let hasTun = lines.contains {
+            !$0.hasPrefix(" ") && !$0.hasPrefix("\t") && $0.hasPrefix("tun:")
+        }
+        guard !hasTun else { return }
+        let block = ["tun:", "  enable: false", ""]
+        if let idx = lines.firstIndex(where: {
+            !$0.hasPrefix(" ") && !$0.hasPrefix("\t") && $0.hasPrefix("dns:")
+        }) {
+            lines.insert(contentsOf: block, at: idx)
+        } else {
+            while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+                lines.removeLast()
+            }
+            lines.append(contentsOf: [""] + block.dropLast())
         }
         config = lines.joined(separator: "\n")
     }
@@ -543,15 +597,26 @@ final class ConfigManager {
         let normalized = yaml
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
+        var found = false
         let lines = normalized.components(separatedBy: "\n").map { line -> String in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !line.hasPrefix(" "), !line.hasPrefix("\t"),
                   trimmed.hasPrefix("\(key):") else {
                 return line
             }
+            found = true
             return "\(key): \(value)"
         }
-        return lines.joined(separator: "\n")
+        if found {
+            return lines.joined(separator: "\n")
+        }
+        // Key absent (e.g. subscription-only YAML): insert at the top so
+        // callers can always force allow-lan / bind-address / mixed-port.
+        let insertion = "\(key): \(value)"
+        if normalized.isEmpty {
+            return insertion
+        }
+        return insertion + "\n" + normalized
     }
 
     /// Merge a Clash subscription YAML into our base config.
@@ -638,20 +703,26 @@ final class ConfigManager {
     /// Merge subscription YAML: take proxies, proxy-groups, rules, and their providers from subscription.
     private func mergeSubscription(_ yaml: String) -> String {
         let base = (try? loadConfig()) ?? defaultConfig()
-        return ConfigManager.mergeSubscription(yaml, baseConfig: base, defaultConfig: defaultConfig())
+        return ConfigManager.mergeSubscription(
+            yaml, baseConfig: base, defaultConfig: defaultConfig(),
+            engineMode: EngineMode.load(from: AppConstants.sharedDefaults)
+        )
     }
 
     /// Pure merge logic — takes all inputs as parameters for testability.
     /// Keeps the header (ports, DNS settings) from the base config.
     /// Overwrites proxies, proxy-groups, rules, and providers directly from subscription
     /// (raw pass-through to preserve all fields mihomo needs).
-    static func mergeSubscription(_ yaml: String, baseConfig: String, defaultConfig: String) -> String {
+    static func mergeSubscription(
+        _ yaml: String, baseConfig: String, defaultConfig: String,
+        engineMode: EngineMode = .vpn
+    ) -> String {
         // 1. Extract raw sections from subscription (preserves exact formatting)
         let sub = extractYAMLSections(from: yaml, named: ["proxies", "proxy-groups", "proxy-providers", "rules", "rule-providers"])
 
         // 2. Header from base config (everything before proxies:) preserves
         // user edits to ports etc. The dns block in it is replaced with the
-        // managed fake-ip block below.
+        // managed block below.
         let baseLines = baseConfig.components(separatedBy: "\n")
         let proxiesCut = baseLines.firstIndex(where: { !$0.hasPrefix(" ") && !$0.hasPrefix("\t") && $0.hasPrefix("proxies:") }) ?? baseLines.count
         let header = baseLines[0..<proxiesCut].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -668,11 +739,11 @@ final class ConfigManager {
         let defaultRules = extractYAMLSections(from: defaultConfig, named: ["rules"])
         result += "\n\n" + (sub["rules"] ?? defaultRules["rules"] ?? "rules:\n  - MATCH,DIRECT")
 
-        // Replace the base header's dns block with the managed fake-ip block,
-        // so a pre-upgrade header (redir-host, `tcp://…#GROUP` nameservers
+        // Replace the base header's dns block with the managed block for the
+        // engine mode, so a pre-upgrade header (`tcp://…#GROUP` nameservers
         // pointing at groups the subscription may not define) can't make the
         // merged config fail validation or load.
-        forceManagedDNS(&result)
+        forceManagedDNS(&result, engineMode: engineMode)
 
         return result
     }
@@ -899,15 +970,15 @@ final class ConfigManager {
 
     func defaultConfig() -> String {
         // mixed-port / dns.listen / external-controller values below are
-        // placeholders only — the bridge picks ephemeral ports at runtime
-        // (see bridge_start_with_ephemeral_ports) so multiple mihomo
-        // instances on the host don't collide. Editing them in the UI has
-        // no effect on the actual bound ports.
+        // placeholders only — the bridge forces SOCKS/DNS/API ports at
+        // runtime. allow-lan / bind-address / mixed-port are rewritten by
+        // VPNManager.buildEffectiveConfigYAML from LANSharingSettings.
         return """
         mixed-port: 0
         mode: rule
         log-level: info
         allow-lan: false
+        bind-address: 127.0.0.1
         external-controller: 127.0.0.1:0
 
         geo-auto-update: false
