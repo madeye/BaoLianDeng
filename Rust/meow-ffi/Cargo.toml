@@ -1,6 +1,6 @@
 [package]
 name = "meow-ffi"
-version = "0.17.0"
+version = "0.20.1"
 edition = "2021"
 rust-version = "1.89"
 license = "MIT"
@@ -13,22 +13,22 @@ crate-type = ["staticlib"]
 
 [dependencies]
 # meow-rs kernel crates, pinned to a single git rev (== local checkout HEAD).
-# Protocol features mirror meow-app's `full` set MINUS `ech-tls-tunnel`, which
-# would pull rustls/aws_lc_rs (aws-lc-sys) in via meow-transport's `ech`
-# feature. `boring-tls` is likewise left off (BoringSSL needs cmake/C++ per
-# arch, breaking the universal-lipo build). Trade-off: no ech-tls-tunnel
-# outbound and no Reality/uTLS fingerprinting — accepted for now.
-meow-common = { git = "https://github.com/madeye/meow-rs.git", rev = "a234015b34dc4b0ef8f436309b3fc451ded968d2" }
-meow-config = { git = "https://github.com/madeye/meow-rs.git", rev = "a234015b34dc4b0ef8f436309b3fc451ded968d2", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vmess", "snell", "hysteria2"] }
-meow-dns = { git = "https://github.com/madeye/meow-rs.git", rev = "a234015b34dc4b0ef8f436309b3fc451ded968d2" }
-meow-tunnel = { git = "https://github.com/madeye/meow-rs.git", rev = "a234015b34dc4b0ef8f436309b3fc451ded968d2" }
-meow-listener = { git = "https://github.com/madeye/meow-rs.git", rev = "a234015b34dc4b0ef8f436309b3fc451ded968d2", default-features = false, features = ["listener-mixed"] }
-meow-api = { git = "https://github.com/madeye/meow-rs.git", rev = "a234015b34dc4b0ef8f436309b3fc451ded968d2" }
+# Protocol features mirror meow-app's `full` protocol set, INCLUDING
+# `ech-tls-tunnel` (pulls rustls/aws_lc_rs via meow-transport's `ech` feature —
+# aws-lc-sys builds fine for both darwin arches). Only `boring-tls` is left
+# off (BoringSSL needs cmake/C++ per arch, breaking the universal-lipo build);
+# since meow-rs #377 REALITY rides with `vless` and no longer needs boring-tls.
+meow-common = { git = "https://github.com/madeye/meow-rs.git", rev = "c5557577fd181e8535d721662c189bec166a21b3" }
+meow-config = { git = "https://github.com/madeye/meow-rs.git", rev = "c5557577fd181e8535d721662c189bec166a21b3", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vless-encryption", "vmess", "snell", "hysteria2", "anytls", "ech-tls-tunnel"] }
+meow-dns = { git = "https://github.com/madeye/meow-rs.git", rev = "c5557577fd181e8535d721662c189bec166a21b3" }
+meow-tunnel = { git = "https://github.com/madeye/meow-rs.git", rev = "c5557577fd181e8535d721662c189bec166a21b3" }
+meow-listener = { git = "https://github.com/madeye/meow-rs.git", rev = "c5557577fd181e8535d721662c189bec166a21b3", default-features = false, features = ["listener-mixed"] }
+meow-api = { git = "https://github.com/madeye/meow-rs.git", rev = "c5557577fd181e8535d721662c189bec166a21b3" }
 # meow-app is pulled in ONLY for its `health_check` lib helpers (url-test /
 # fallback group probing). default-features = false drops its `full` +
-# `boring-tls` bundle so no ech/aws-lc/BoringSSL leaks in; protocol features
-# come from meow-config above and unify onto the shared crate instances.
-meow-app = { git = "https://github.com/madeye/meow-rs.git", rev = "a234015b34dc4b0ef8f436309b3fc451ded968d2", default-features = false }
+# `boring-tls` bundle so no BoringSSL leaks in; protocol features come from
+# meow-config above and unify onto the shared crate instances.
+meow-app = { git = "https://github.com/madeye/meow-rs.git", rev = "c5557577fd181e8535d721662c189bec166a21b3", default-features = false }
 
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
 parking_lot = "0.12"
@@ -36,7 +36,8 @@ dashmap = "6"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry"] }
-# ring-backed rustls only; never aws_lc_rs (would pull aws-lc-sys / cmake).
+# ring-backed rustls for our own diagnostics client. Note aws_lc_rs is now in
+# the tree anyway via meow-transport's `ech` feature (ech-tls-tunnel above).
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 # Diagnostics HTTP client: SOCKS5 + rustls(ring); no default (native-tls/openssl).
 reqwest = { version = "0.12", default-features = false, features = ["socks", "json", "rustls-tls"] }
