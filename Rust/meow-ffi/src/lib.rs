@@ -505,7 +505,7 @@ pub extern "C" fn bridge_version() -> *const c_char {
     // meow crate version at the pinned rev; cosmetic (Swift never parses it).
     match catch_unwind(AssertUnwindSafe(|| {
         VERSION
-            .get_or_init(|| CString::new("meow-rs 0.16.0").unwrap())
+            .get_or_init(|| CString::new("meow-rs 0.20.1").unwrap())
             .as_ptr()
     })) {
         Ok(ptr) => ptr,
@@ -603,6 +603,43 @@ rules:
     fn validates_minimal_config() {
         let yaml = "mode: rule\nproxies: []\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - DIRECT\nrules:\n  - MATCH,DIRECT\n";
         assert_eq!(validate(yaml), 0);
+    }
+
+    // Regression: ss + `plugin: ech-tls-tunnel` must resolve to the BUILT-IN
+    // transport (feature `ech-tls-tunnel` in meow-config). Without the feature
+    // the adapter falls through to the external-SIP003-plugin path and tries
+    // to spawn an `ech-tls-tunnel` subprocess — denied by the App Sandbox, so
+    // the proxy was silently dropped and selector groups collapsed to DIRECT.
+    // The MATCH rule targets the node, so a dropped proxy fails validation
+    // instead of passing with a warn-and-skip. The ech_config is a real
+    // ECHConfigList as published in Cloudflare's public DNS HTTPS records
+    // (public key material only) — TlsLayer::new parses it structurally.
+    #[test]
+    fn validates_ss_ech_tls_tunnel_plugin() {
+        let yaml = "\
+mode: rule
+proxies:
+  - name: ech-node
+    type: ss
+    server: 127.0.0.1
+    port: 443
+    cipher: aes-128-gcm
+    password: test
+    plugin: ech-tls-tunnel
+    plugin-opts:
+      mode: client
+      sni: example.com
+      path: /ws-test
+      ech_config: \"AEn+DQBF/gAgACCQeNQYP6XhS1bAPcT1x0nWjCNDLiaAg83tJwDi3QhDDwAIAAEAAQABAAMAEnd3dy5jbG91ZGZsYXJlLmNvbQAA\"
+rules:
+  - MATCH,ech-node
+";
+        let rc = validate(yaml);
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap_or("")
+            .to_string();
+        assert_eq!(rc, 0, "validation error: {err}");
     }
 
     #[test]
