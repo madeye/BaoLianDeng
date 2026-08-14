@@ -425,8 +425,9 @@ final class ConfigManager {
     /// Sanitize a config string in-place (same rules as sanitizeConfig but on a String).
     /// Idempotent: re-running on an already-sanitized config is a no-op, since
     /// `saveConfig` calls this unconditionally on every write.
-    /// `engineMode` picks the managed DNS block (fake-ip for the transparent
-    /// proxy, redir-host for local proxy mode).
+    /// `engineMode` only forces DNS fields the engine cannot run without
+    /// (enable / listen / enhanced-mode / fake-ip-range); nameservers and
+    /// the rest of a user or subscription `dns:` block are left intact.
     static func sanitizeConfigString(_ config: inout String, engineMode: EngineMode = .vpn) {
         // Disable TUN and geo-auto-update — transparent proxy intercepts at
         // socket level, and geo downloads would block tunnel startup.
@@ -451,16 +452,15 @@ final class ConfigManager {
         forceTunDisabled(&config)
     }
 
-    /// DNS settings owned by the app/extension, mirroring meow-ios's
-    /// EffectiveConfigWriter: any user- or subscription-supplied `dns:` block
-    /// is replaced wholesale on every sanitize.
+    /// Fallback `dns:` block inserted only when the config has none.
+    /// Nameservers here are bootstrap-friendly IP literals so a missing
+    /// section still starts the engine; an existing user or subscription
+    /// block is patched in place instead of replaced (see `forceManagedDNS`).
     ///
-    /// fake-ip mode answers every A query with a synthetic 28.0.0.0/8 address,
-    /// so the engine — not a local upstream — resolves proxied domains: the
-    /// query never leaves the machine in the clear and the answer can't be
-    /// poisoned. The range can't be mihomo's 198.18.0.0/15 default because
-    /// the transparent proxy's excludedNetworkRules bypass that range, which
-    /// would send fake-IP flows straight to the physical interface.
+    /// fake-ip answers every A query with a synthetic 28.0.0.0/8 address,
+    /// so the engine — not a local upstream — resolves proxied domains.
+    /// The range can't be mihomo's 198.18.0.0/15 default because the
+    /// transparent proxy's excludedNetworkRules bypass that range.
     static let managedDNSSection = """
     dns:
       enable: true
@@ -480,12 +480,11 @@ final class ConfigManager {
         - 223.5.5.5
     """
 
-    /// Managed DNS for local proxy mode. Nothing is intercepted there —
-    /// clients hand the engine real domains via the HTTP/SOCKS proxy
-    /// protocol and never query its DNS listener, so fake-ip answers would
-    /// only hand out unroutable 28.0.0.0/8 addresses (harmful if anything
-    /// did query, e.g. via Allow LAN). redir-host returns real upstream IPs
-    /// while the engine's sniffing cache still restores domains for rules.
+    /// Fallback `dns:` block for local proxy mode when the config has none.
+    /// Nothing is intercepted there — clients hand the engine real domains
+    /// via HTTP/SOCKS — so fake-ip would only hand out unroutable 28.0.0.0/8
+    /// addresses. redir-host returns real upstream IPs; the sniffing cache
+    /// still restores domains for rules.
     static let managedLocalProxyDNSSection = """
     dns:
       enable: true
@@ -501,47 +500,220 @@ final class ConfigManager {
         - 223.5.5.5
     """
 
-    /// Replace any existing top-level `dns:` section with the managed block
-    /// for `engineMode` (fake-ip for the transparent proxy, redir-host for
-    /// local proxy mode), inserting it ahead of `proxies:` (or at the end)
-    /// to keep the header layout stable. Idempotent: re-running on a managed
-    /// config is a no-op change in content.
+    /// Ensure the config has a usable `dns:` section for `engineMode`.
+    ///
+    /// Missing section → insert the mode's fallback block. Existing section
+    /// → rewrite only the engine invariants (`enable`, `listen`,
+    /// `enhanced-mode`, and `fake-ip-range` in VPN mode). Nameserver lists,
+    /// fallback, nameserver-policy, fake-ip-filter, and comments stay as
+    /// the user or subscription wrote them.
     static func forceManagedDNS(_ config: inout String, engineMode: EngineMode = .vpn) {
         var lines = config.components(separatedBy: "\n")
-        if let start = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).hasPrefix("dns:")
-                && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
-        }) {
-            var end = lines.count
-            for i in (start + 1)..<lines.count {
-                let line = lines[i]
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                // Comments at any indentation stay with the section; only a
-                // real top-level key ends it.
-                if !trimmed.isEmpty && !trimmed.hasPrefix("#")
-                    && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
-                    end = i
-                    break
+        if let range = topLevelSectionRange(in: lines, key: "dns") {
+            var section = Array(lines[range])
+            patchDNSSection(&section, engineMode: engineMode)
+            lines.replaceSubrange(range, with: section)
+        } else {
+            let section = engineMode == .localProxy
+                ? Self.managedLocalProxyDNSSection : Self.managedDNSSection
+            let block = section.components(separatedBy: "\n")
+            if let idx = lines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces).hasPrefix("proxies:")
+                    && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
+            }) {
+                lines.insert(contentsOf: block + [""], at: idx)
+            } else {
+                while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+                    lines.removeLast()
                 }
+                lines.append(contentsOf: [""] + block)
             }
-            lines.removeSubrange(start..<end)
         }
-        let section = engineMode == .localProxy
-            ? Self.managedLocalProxyDNSSection : Self.managedDNSSection
-        let block = section.components(separatedBy: "\n")
-        if let idx = lines.firstIndex(where: {
+        config = lines.joined(separator: "\n")
+    }
+
+    /// Inclusive range of a top-level YAML mapping section named `key`.
+    /// The range starts at `key:` and ends before the next top-level key
+    /// (comments and blanks stay with the section).
+    private static func topLevelSectionRange(
+        in lines: [String], key: String
+    ) -> Range<Int>? {
+        guard let start = lines.firstIndex(where: {
+            isYAMLKey($0.trimmingCharacters(in: .whitespaces), key)
+                && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
+        }) else { return nil }
+        var end = lines.count
+        for i in (start + 1)..<lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
+                end = i
+                break
+            }
+        }
+        return start..<end
+    }
+
+    /// Replace or insert a top-level YAML section. `body` should start with
+    /// `key:` and include the full section text.
+    private static func replaceTopLevelSection(
+        _ config: inout String, key: String, with body: String
+    ) {
+        var lines = config.components(separatedBy: "\n")
+        let block = body.components(separatedBy: "\n")
+        if let range = topLevelSectionRange(in: lines, key: key) {
+            lines.replaceSubrange(range, with: block)
+        } else if let idx = lines.firstIndex(where: {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("proxies:")
                 && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
         }) {
             lines.insert(contentsOf: block + [""], at: idx)
         } else {
-            // Drop trailing blank lines so appending stays idempotent.
             while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {
                 lines.removeLast()
             }
             lines.append(contentsOf: [""] + block)
         }
         config = lines.joined(separator: "\n")
+    }
+
+    /// True when `trimmed` is a YAML `key:` mapping line (not a longer key
+    /// that merely shares a prefix, e.g. `fake-ip-filter` vs `fake-ip-filter-mode`).
+    private static func isYAMLKey(_ trimmed: String, _ key: String) -> Bool {
+        guard trimmed.hasPrefix(key) else { return false }
+        let rest = trimmed.dropFirst(key.count)
+        return rest.first == ":"
+    }
+
+    /// Rewrite engine-required scalars inside an existing `dns:` section.
+    private static func patchDNSSection(_ lines: inout [String], engineMode: EngineMode) {
+        healSplitDNSBlock(&lines)
+        let mode = engineMode == .localProxy ? "redir-host" : "fake-ip"
+        setSectionScalar(&lines, key: "enable", value: "true")
+        setSectionScalar(&lines, key: "listen", value: "127.0.0.1:0")
+        setSectionScalar(&lines, key: "enhanced-mode", value: mode)
+        if engineMode == .localProxy {
+            removeSectionScalar(&lines, key: "fake-ip-range")
+        } else {
+            setSectionScalar(&lines, key: "fake-ip-range", value: "28.0.0.0/8")
+        }
+    }
+
+    /// Indent used by first-level keys under `dns:`.
+    private static func dnsChildIndent(in lines: [String]) -> String {
+        for line in lines.dropFirst() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+            let indent = line.prefix { $0 == " " || $0 == "\t" }
+            if !indent.isEmpty { return String(indent) }
+        }
+        return "  "
+    }
+
+    /// Unquoted scalar after `key:` on a first-level section line, minus
+    /// a trailing comment. Nil when the key is absent.
+    private static func sectionScalarValue(_ trimmed: String, key: String) -> String? {
+        guard isYAMLKey(trimmed, key) else { return nil }
+        var rest = trimmed.dropFirst(key.count + 1)
+            .trimmingCharacters(in: .whitespaces)
+        if let hash = rest.firstIndex(of: "#") {
+            rest = rest[..<hash].trimmingCharacters(in: .whitespaces)
+        }
+        return rest
+    }
+
+    /// Keys this patcher may insert. Used to recognize (and heal) a previous
+    /// bug that dropped them between a block key like `nameserver:` and its list.
+    private static let patchedDNSKeys: Set<String> = [
+        "enable", "listen", "enhanced-mode", "fake-ip-range",
+    ]
+
+    /// Set a first-level scalar under the section header. Missing keys are
+    /// inserted immediately under `dns:` — never after a block key such as
+    /// `nameserver:` — so the new scalar cannot steal that key's list items.
+    /// A matching value is left untouched so comments stay put.
+    private static func setSectionScalar(_ lines: inout [String], key: String, value: String) {
+        for i in 1..<lines.count {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+            guard isYAMLKey(trimmed, key) else { continue }
+            if sectionScalarValue(trimmed, key: key) == value { return }
+            lines[i] = replacingScalarValue(lines[i], key: key, newValue: value)
+            return
+        }
+        let indent = dnsChildIndent(in: lines)
+        lines.insert("\(indent)\(key): \(value)", at: 1)
+    }
+
+    /// Repair `nameserver:\n  listen: 127.0.0.1:0\n    - https://…` produced
+    /// by an earlier inserter that split a block key from its nested list.
+    /// The orphaned list/map lines move back under the empty block key.
+    private static func healSplitDNSBlock(_ lines: inout [String]) {
+        let indent = dnsChildIndent(in: lines)
+        var i = 1
+        while i < lines.count {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+            let lineIndent = String(lines[i].prefix { $0 == " " || $0 == "\t" })
+            guard lineIndent == indent,
+                  let key = mappingKeyName(trimmed),
+                  !patchedDNSKeys.contains(key),
+                  sectionScalarValue(trimmed, key: key)?.isEmpty == true else {
+                i += 1
+                continue
+            }
+            var j = i + 1
+            var stolen: Range<Int>?
+            while j < lines.count {
+                let t = lines[j].trimmingCharacters(in: .whitespaces)
+                if t.isEmpty || t.hasPrefix("#") {
+                    j += 1
+                    continue
+                }
+                let ji = String(lines[j].prefix { $0 == " " || $0 == "\t" })
+                if ji == indent, let k = mappingKeyName(t), patchedDNSKeys.contains(k) {
+                    j += 1
+                    continue
+                }
+                if ji.count > indent.count {
+                    let start = j
+                    var k = j + 1
+                    while k < lines.count {
+                        let kt = lines[k].trimmingCharacters(in: .whitespaces)
+                        if kt.isEmpty {
+                            k += 1
+                            continue
+                        }
+                        let ki = String(lines[k].prefix { $0 == " " || $0 == "\t" })
+                        if ki.count <= indent.count { break }
+                        k += 1
+                    }
+                    stolen = start..<k
+                }
+                break
+            }
+            if let stolen {
+                let items = Array(lines[stolen])
+                lines.removeSubrange(stolen)
+                lines.insert(contentsOf: items, at: i + 1)
+                i += 1 + items.count
+            } else {
+                i += 1
+            }
+        }
+    }
+
+    /// Mapping key on a `key:` / `key: value` line, or nil.
+    private static func mappingKeyName(_ trimmed: String) -> String? {
+        guard let colon = trimmed.firstIndex(of: ":") else { return nil }
+        let name = String(trimmed[..<colon])
+        guard !name.isEmpty, !name.hasPrefix("#"), !name.hasPrefix("-") else { return nil }
+        return name
+    }
+
+    /// Drop a first-level scalar key (and only that line). Used to strip
+    /// `fake-ip-range` when switching the engine to redir-host.
+    private static func removeSectionScalar(_ lines: inout [String], key: String) {
+        lines.removeAll { isYAMLKey($0.trimmingCharacters(in: .whitespaces), key) }
     }
 
     /// Ensure the config carries an explicit, disabled top-level `tun:`
@@ -620,7 +792,8 @@ final class ConfigManager {
     }
 
     /// Merge a Clash subscription YAML into our base config.
-    /// Keeps our DNS/port settings and local rules; takes only proxies and proxy-groups from the subscription.
+    /// Keeps port settings from the base header; takes proxies, groups,
+    /// rules, providers, and (when present) the subscription `dns:` block.
     /// Returns the merged YAML so callers can inspect it without re-reading the file.
     @discardableResult
     func applySubscriptionConfig(_ subscriptionYAML: String) throws -> String {
@@ -718,14 +891,21 @@ final class ConfigManager {
         engineMode: EngineMode = .vpn
     ) -> String {
         // 1. Extract raw sections from subscription (preserves exact formatting)
-        let sub = extractYAMLSections(from: yaml, named: ["proxies", "proxy-groups", "proxy-providers", "rules", "rule-providers"])
+        let sub = extractYAMLSections(
+            from: yaml,
+            named: ["proxies", "proxy-groups", "proxy-providers", "rules", "rule-providers", "dns"]
+        )
 
         // 2. Header from base config (everything before proxies:) preserves
-        // user edits to ports etc. The dns block in it is replaced with the
-        // managed block below.
+        // user edits to ports. A subscription `dns:` block replaces the
+        // header's dns section so provider nameservers/fallback survive;
+        // otherwise the base dns is kept.
         let baseLines = baseConfig.components(separatedBy: "\n")
         let proxiesCut = baseLines.firstIndex(where: { !$0.hasPrefix(" ") && !$0.hasPrefix("\t") && $0.hasPrefix("proxies:") }) ?? baseLines.count
-        let header = baseLines[0..<proxiesCut].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        var header = baseLines[0..<proxiesCut].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if let subDNS = sub["dns"] {
+            replaceTopLevelSection(&header, key: "dns", with: subDNS)
+        }
 
         // 3. Build merged config — pass through raw sections from subscription
         var result = header
@@ -739,13 +919,69 @@ final class ConfigManager {
         let defaultRules = extractYAMLSections(from: defaultConfig, named: ["rules"])
         result += "\n\n" + (sub["rules"] ?? defaultRules["rules"] ?? "rules:\n  - MATCH,DIRECT")
 
-        // Replace the base header's dns block with the managed block for the
-        // engine mode, so a pre-upgrade header (`tcp://…#GROUP` nameservers
-        // pointing at groups the subscription may not define) can't make the
-        // merged config fail validation or load.
+        // Force only engine invariants (enable / listen / enhanced-mode /
+        // fake-ip-range). Nameservers, fallback, and nameserver-policy stay.
         forceManagedDNS(&result, engineMode: engineMode)
 
+        // Default rules target `PROXY`. A proxies-only subscription has
+        // no such group — insert one that defaults to DIRECT so traffic
+        // still flows instead of hitting a missing name.
+        ensureProxyGroupFallback(&result)
+
         return result
+    }
+
+    /// Insert a `PROXY` select group defaulting to DIRECT when the merged
+    /// config does not already define one. Existing groups are left intact
+    /// (prepended, not rewritten) so subscription fields like `filter` /
+    /// `icon` survive. Leaf proxy names are listed after DIRECT so the
+    /// user can still pick a node later.
+    static func ensureProxyGroupFallback(_ config: inout String) {
+        if hasNamedProxyGroup(config, name: "PROXY") { return }
+
+        var members = ["DIRECT"]
+        if let dict = (try? Yams.load(yaml: config)) as? [String: Any],
+           let proxies = dict["proxies"] as? [[String: Any]] {
+            for name in extractProxyNames(from: proxies)
+            where name != "DIRECT" && name != "REJECT" && !members.contains(name) {
+                members.append(name)
+            }
+        }
+
+        let groupLines = [
+            "  - name: \(yamlQuotedString("PROXY"))",
+            "    type: select",
+            "    proxies:",
+        ] + members.map { "      - \(yamlQuotedString($0))" }
+
+        var lines = config.components(separatedBy: "\n")
+        if let idx = lines.firstIndex(where: { isTopLevelYAMLKey($0, "proxy-groups") }) {
+            let trimmed = lines[idx].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("proxy-groups: []") {
+                lines[idx] = "proxy-groups:"
+                lines.insert(contentsOf: groupLines, at: idx + 1)
+            } else {
+                lines.insert(contentsOf: groupLines, at: idx + 1)
+            }
+        } else if let rulesIdx = lines.firstIndex(where: { isTopLevelYAMLKey($0, "rules") }) {
+            lines.insert(contentsOf: ["proxy-groups:"] + groupLines + [""], at: rulesIdx)
+        } else {
+            if let last = lines.last, !last.trimmingCharacters(in: .whitespaces).isEmpty {
+                lines.append("")
+            }
+            lines.append("proxy-groups:")
+            lines.append(contentsOf: groupLines)
+        }
+        config = lines.joined(separator: "\n")
+    }
+
+    private static func isTopLevelYAMLKey(_ line: String, _ key: String) -> Bool {
+        !line.hasPrefix(" ") && !line.hasPrefix("\t")
+            && isYAMLKey(line.trimmingCharacters(in: .whitespaces), key)
+    }
+
+    private static func hasNamedProxyGroup(_ yaml: String, name: String) -> Bool {
+        ConfigManager.shared.parseProxyGroups(from: yaml).contains { $0.name == name }
     }
 
     /// Set interval to 0 in provider sections so Mihomo won't auto-refresh subscription URLs.
