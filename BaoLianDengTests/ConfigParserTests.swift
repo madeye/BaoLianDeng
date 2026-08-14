@@ -188,7 +188,7 @@ struct MergeSubscriptionTests {
         #expect(merged.contains("dns:"))
     }
 
-    @Test("Merged config carries the managed fake-ip dns block")
+    @Test("Merged config forces fake-ip invariants on the base dns block")
     func mergedHasManagedDNS() {
         let sub = """
         proxies:
@@ -199,6 +199,29 @@ struct MergeSubscriptionTests {
         )
         #expect(merged.contains("enhanced-mode: fake-ip"))
         #expect(merged.contains("fake-ip-range: 28.0.0.0/8"))
+    }
+
+    @Test("Subscription dns nameservers survive merge")
+    func subscriptionDNSPreserved() {
+        let sub = """
+        dns:
+          enable: true
+          enhanced-mode: redir-host
+          nameserver:
+            - https://doh.pub/dns-query
+          fallback:
+            - https://1.1.1.1/dns-query
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        #expect(merged.contains("https://doh.pub/dns-query"))
+        #expect(merged.contains("https://1.1.1.1/dns-query"))
+        #expect(merged.contains("enhanced-mode: fake-ip"))
+        #expect(merged.contains("fake-ip-range: 28.0.0.0/8"))
+        #expect(!merged.contains("redir-host"))
     }
 
     @Test("Falls back to default rules when subscription has none")
@@ -247,6 +270,69 @@ struct MergeSubscriptionTests {
         #expect(merged.contains("mixed-port: 7890"))
         #expect(merged.contains("rules:"))
     }
+
+    @Test("Proxies-only subscription gets a PROXY group defaulting to DIRECT")
+    func missingPROXYFallsBackToDIRECT() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let groups = ConfigManager.shared.parseProxyGroups(from: merged)
+        let proxy = groups.first { $0.name == "PROXY" }
+        #expect(proxy != nil)
+        #expect(proxy?.type == "select")
+        #expect(proxy?.proxies.first == "DIRECT")
+        #expect(proxy?.proxies.contains("node") == true)
+        #expect(merged.contains("MATCH,PROXY"))
+    }
+
+    @Test("Existing PROXY group is left unchanged")
+    func existingPROXYPreserved() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: PROXY
+            type: select
+            proxies:
+              - node
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let groups = ConfigManager.shared.parseProxyGroups(from: merged)
+        let proxyGroups = groups.filter { $0.name == "PROXY" }
+        #expect(proxyGroups.count == 1)
+        #expect(proxyGroups[0].proxies == ["node"])
+    }
+
+    @Test("Custom groups without PROXY keep their extra fields when fallback is injected")
+    func injectsPROXYWithoutRewritingOtherGroups() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Proxies
+            type: select
+            icon: https://example.com/icon.png
+            proxies:
+              - node
+        rules:
+          - MATCH,Proxies
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        #expect(merged.contains("icon: https://example.com/icon.png"))
+        #expect(merged.contains("MATCH,Proxies"))
+        let groups = ConfigManager.shared.parseProxyGroups(from: merged)
+        #expect(groups.contains { $0.name == "Proxies" })
+        let proxy = groups.first { $0.name == "PROXY" }
+        #expect(proxy?.proxies.first == "DIRECT")
+    }
 }
 
 // MARK: - Managed DNS
@@ -254,8 +340,8 @@ struct MergeSubscriptionTests {
 @Suite("forceManagedDNS")
 struct ForceManagedDNSTests {
 
-    @Test("Replaces a redir-host dns block with the managed fake-ip block")
-    func replacesRedirHostBlock() {
+    @Test("Forces fake-ip invariants but keeps the original nameservers")
+    func forcesFakeIpButKeepsNameservers() {
         var config = """
         mixed-port: 7890
         mode: rule
@@ -272,9 +358,9 @@ struct ForceManagedDNSTests {
         ConfigManager.forceManagedDNS(&config)
         #expect(config.contains("enhanced-mode: fake-ip"))
         #expect(config.contains("fake-ip-range: 28.0.0.0/8"))
+        #expect(config.contains("listen: 127.0.0.1:0"))
         #expect(!config.contains("redir-host"))
-        #expect(!config.contains("#PROXY"))
-        // Managed block sits ahead of proxies:, keeping the header layout.
+        #expect(config.contains("tcp://1.1.1.1:53#PROXY"))
         let dnsIdx = config.range(of: "dns:")!.lowerBound
         let proxiesIdx = config.range(of: "proxies: []")!.lowerBound
         #expect(dnsIdx < proxiesIdx)
@@ -297,8 +383,8 @@ struct ForceManagedDNSTests {
         #expect(config.components(separatedBy: "dns:").count - 1 == 1)
     }
 
-    @Test("Top-level comments inside the dns section are removed with it")
-    func removesTopLevelCommentsInSection() {
+    @Test("Comments inside the dns section are kept")
+    func preservesCommentsInSection() {
         var config = """
         dns:
           enable: true
@@ -308,7 +394,7 @@ struct ForceManagedDNSTests {
         """
         ConfigManager.forceManagedDNS(&config)
         #expect(!config.contains("redir-host"))
-        #expect(!config.contains("stray comment"))
+        #expect(config.contains("stray comment"))
         #expect(config.contains("enhanced-mode: fake-ip"))
     }
 
@@ -324,7 +410,77 @@ struct ForceManagedDNSTests {
         """
         ConfigManager.forceManagedDNS(&config, engineMode: .localProxy)
         #expect(config.contains("enhanced-mode: redir-host"))
-        #expect(!config.contains("fake-ip"))
+        #expect(!config.contains("enhanced-mode: fake-ip"))
+        #expect(!config.contains("fake-ip-range"))
+    }
+
+    @Test("Keeps fallback and nameserver-policy from the original block")
+    func keepsFallbackAndPolicy() {
+        var config = """
+        dns:
+          enable: false
+          nameserver:
+            - https://doh.pub/dns-query
+          fallback:
+            - https://1.1.1.1/dns-query
+          nameserver-policy:
+            'geosite:cn': 223.5.5.5
+          fake-ip-filter:
+            - '*.lan'
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config.contains("enable: true"))
+        #expect(config.contains("https://doh.pub/dns-query"))
+        #expect(config.contains("https://1.1.1.1/dns-query"))
+        #expect(config.contains("geosite:cn"))
+        #expect(config.contains("*.lan"))
+        #expect(config.contains("enhanced-mode: fake-ip"))
+        #expect(config.contains("fake-ip-range: 28.0.0.0/8"))
+    }
+
+    @Test("Inserting listen does not steal nameserver list items")
+    func listenInsertDoesNotSplitNameserver() {
+        var config = """
+        dns:
+          enable: true
+          nameserver:
+            - https://doh.pub/dns-query
+            - https://dns.alidns.com/dns-query
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config, engineMode: .localProxy)
+        #expect(config.contains("listen: 127.0.0.1:0"))
+        #expect(config.contains("https://doh.pub/dns-query"))
+        #expect(config.contains("https://dns.alidns.com/dns-query"))
+        #expect(!config.contains("127.0.0.1:0 - https://"))
+        let nameserverIdx = config.range(of: "nameserver:")!.lowerBound
+        let listenIdx = config.range(of: "listen:")!.lowerBound
+        let dohIdx = config.range(of: "https://doh.pub/dns-query")!.lowerBound
+        #expect(listenIdx < nameserverIdx)
+        #expect(nameserverIdx < dohIdx)
+    }
+
+    @Test("Heals a listen line that split nameserver from its list")
+    func healsSplitNameserverList() {
+        var config = """
+        dns:
+          enable: true
+          nameserver:
+          listen: 127.0.0.1:0
+            - https://doh.pub/dns-query
+            - https://dns.alidns.com/dns-query
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config, engineMode: .localProxy)
+        #expect(config.contains("listen: 127.0.0.1:0"))
+        #expect(!config.contains("127.0.0.1:0 - https://"))
+        let nameserverIdx = config.range(of: "nameserver:")!.lowerBound
+        let dohIdx = config.range(of: "https://doh.pub/dns-query")!.lowerBound
+        let listenIdx = config.range(of: "listen:")!.lowerBound
+        #expect(nameserverIdx < dohIdx)
+        // listen must not sit between nameserver: and its list items
+        #expect(!(nameserverIdx < listenIdx && listenIdx < dohIdx))
     }
 
     @Test("Idempotent in local proxy mode")
@@ -681,7 +837,8 @@ struct SanitizeConfigStringTests {
             + ConfigManager.managedDNSSection + "\nproxies: []\n"
         ConfigManager.sanitizeConfigString(&config, engineMode: .localProxy)
         #expect(config.contains("enhanced-mode: redir-host"))
-        #expect(!config.contains("fake-ip"))
+        #expect(!config.contains("enhanced-mode: fake-ip"))
+        #expect(!config.contains("fake-ip-range"))
         #expect(config.contains("tun:\n  enable: false"))
         #expect(!config.contains("enable: true\n  stack"))
     }
