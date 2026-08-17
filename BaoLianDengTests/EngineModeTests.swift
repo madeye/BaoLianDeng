@@ -140,3 +140,72 @@ final class EngineModeTests: XCTestCase {
         XCTAssertTrue(EphemeralPort.isTCPPortFree(port))
     }
 }
+
+final class OnceResumeTests: XCTestCase {
+
+    func testResumeAfterArmDeliversValue() async {
+        let gate = OnceResume<Int>()
+        let value = await withCheckedContinuation { (cont: CheckedContinuation<Int, Never>) in
+            gate.arm(cont)
+            DispatchQueue.global().async {
+                gate.resume(7)
+            }
+        }
+        XCTAssertEqual(value, 7)
+    }
+
+    func testResumeBeforeArmParksValue() async {
+        let gate = OnceResume<Int?>()
+        gate.resume(nil)
+        let value = await withCheckedContinuation { (cont: CheckedContinuation<Int?, Never>) in
+            gate.arm(cont)
+        }
+        XCTAssertNil(value)
+    }
+
+    func testFirstResumeWins() async {
+        let gate = OnceResume<String>()
+        let value = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+            gate.arm(cont)
+            gate.resume("first")
+            gate.resume("second")
+        }
+        XCTAssertEqual(value, "first")
+    }
+
+    /// Stands in for `relayTCP`: one direction finishes, `cancelAll` must
+    /// unblock a sibling sitting on a callback that will never fire
+    /// (`flow.readData` after `closeRead` is the real case).
+    func testSiblingCancelUnblocksNeverFiringCallback() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try? await SOCKS5Client.withCancellableResult { (_: (Result<Void, Error>) -> Void) in
+                    // never resume
+                }
+            }
+            group.addTask {
+                // other direction already finished
+            }
+            _ = await group.next()
+            group.cancelAll()
+            await group.waitForAll()
+        }
+    }
+
+    func testCancelledWaitThrowsConnectionCancelled() async {
+        let task = Task {
+            try await SOCKS5Client.withCancellableResult { (_: (Result<Void, Error>) -> Void) in
+                // never resume
+            }
+        }
+        task.cancel()
+        do {
+            try await task.value
+            XCTFail("expected connectionCancelled")
+        } catch let error as SOCKS5Error {
+            XCTAssertEqual(error, .connectionCancelled)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+}
