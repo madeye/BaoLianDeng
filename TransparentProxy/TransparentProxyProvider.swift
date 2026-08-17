@@ -489,36 +489,32 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         await withTaskGroup(of: Void.self) { group in
             // Flow → SOCKS5
             group.addTask {
-                while true {
-                    let data: Data? = await withOneShotFlowContinuation { resume in
-                        flow.readData(completionHandler: { data, error in
+                while !Task.isCancelled {
+                    let data: Data? = await withCancellableFlowContinuation(onCancel: nil) { resume in
+                        flow.readData { data, error in
                             if error != nil || data == nil || data!.isEmpty {
                                 resume(nil)
                             } else {
                                 resume(data)
                             }
-                        })
+                        }
                     }
-                    guard let data = data else { break }
+                    guard let data else { break }
                     do {
                         try await SOCKS5Client.sendAll(connection: connection, data: data)
                     } catch {
                         break
                     }
                 }
-                // Signal both sides so the other task can exit
-                connection.cancel()
-                flow.closeReadWithError(nil)
-                flow.closeWriteWithError(nil)
             }
 
             // SOCKS5 → Flow
             group.addTask {
-                while true {
+                while !Task.isCancelled {
                     do {
                         let data = try await SOCKS5Client.readSome(connection: connection)
                         guard !data.isEmpty else { break }
-                        let writeOK: Bool = await withOneShotFlowContinuation { resume in
+                        let writeOK: Bool = await withCancellableFlowContinuation(onCancel: false) { resume in
                             flow.write(data) { error in
                                 resume(error == nil)
                             }
@@ -528,11 +524,24 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                         break
                     }
                 }
-                // Signal both sides so the other task can exit
-                connection.cancel()
-                flow.closeReadWithError(nil)
-                flow.closeWriteWithError(nil)
             }
+
+            // First direction to finish tears the sibling down.
+            //
+            // `closeRead`/`closeWrite` and `NWConnection.cancel()` do **not**
+            // reliably invoke a pending NE / Network.framework callback. The
+            // previous code waited for both tasks and only "signalled" by
+            // closing; the sibling then sat forever in `readData`/`receive`,
+            // retaining the flow, the SOCKS connection, and three Tasks.
+            // Heap on a 2-day process showed ~11k of each. `cancelAll()`
+            // force-resumes the pending continuation via
+            // `withTaskCancellationHandler`.
+            _ = await group.next()
+            connection.cancel()
+            flow.closeReadWithError(nil)
+            flow.closeWriteWithError(nil)
+            group.cancelAll()
+            await group.waitForAll()
         }
     }
 
@@ -910,33 +919,28 @@ extension Collection {
 
 // MARK: - Flow continuation helper
 
-/// Bridge a flow completion-handler callback to async, resuming the
-/// continuation exactly once even if the handler fires more than once during
-/// teardown races.
+/// Bridge a flow completion-handler callback to async, resuming exactly once
+/// even if the handler fires more than once during teardown races — or never
+/// fires at all after `closeRead`/`closeWrite`.
 ///
 /// `NEAppProxyTCPFlow.readData`/`write` belong to the same flow family as
-/// `NEAppProxyFlow.open` (see `TransparentProxyProvider.openFlow`), whose
-/// completion handler can fire multiple times during teardown. A bare
-/// `withCheckedContinuation` would then call `cont.resume` twice and trap with
-/// "SWIFT TASK CONTINUATION MISUSE" (EXC_BREAKPOINT), killing the extension.
-/// The `resumed` flag (guarded by a lock, since the handler may fire on
-/// different threads) makes resumption happen exactly once.
-private func withOneShotFlowContinuation<T>(
-    _ body: (@escaping (T) -> Void) -> Void
+/// `NEAppProxyFlow.open` (see `TransparentProxyProvider.openFlow`). The
+/// completion can fire multiple times (a bare `withCheckedContinuation`
+/// would trap "SWIFT TASK CONTINUATION MISUSE") **or never**, which is how
+/// finished TCP relays leaked ~11k flows. Task cancellation delivers
+/// `onCancel` so the waiter cannot pin the flow forever.
+private func withCancellableFlowContinuation<T: Sendable>(
+    onCancel: T,
+    _ body: (@escaping @Sendable (T) -> Void) -> Void
 ) async -> T {
-    await withCheckedContinuation { (cont: CheckedContinuation<T, Never>) in
-        let lock = NSLock()
-        var resumed = false
-        body { value in
-            lock.lock()
-            if resumed {
-                lock.unlock()
-                return
-            }
-            resumed = true
-            lock.unlock()
-            cont.resume(returning: value)
+    let gate = OnceResume<T>()
+    return await withTaskCancellationHandler {
+        await withCheckedContinuation { (cont: CheckedContinuation<T, Never>) in
+            gate.arm(cont)
+            body { gate.resume($0) }
         }
+    } onCancel: {
+        gate.resume(onCancel)
     }
 }
 

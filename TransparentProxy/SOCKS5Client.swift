@@ -6,7 +6,7 @@ import Foundation
 @preconcurrency import Network
 
 /// Errors thrown by the shared SOCKS5 / NWConnection helpers.
-enum SOCKS5Error: LocalizedError {
+enum SOCKS5Error: LocalizedError, Equatable {
     case connectionCancelled
     case unexpectedEOF
     case socks5AuthFailed
@@ -37,61 +37,77 @@ enum SOCKS5Client {
             port: NWEndpoint.Port(rawValue: port)!
         )
         let connection = NWConnection(to: endpoint, using: .tcp)
+        let gate = OnceResume<Result<NWConnection, Error>>()
 
-        return try await withCheckedThrowingContinuation { cont in
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    connection.stateUpdateHandler = nil
-                    cont.resume(returning: connection)
-                case .failed(let error):
-                    connection.stateUpdateHandler = nil
-                    cont.resume(throwing: error)
-                case .cancelled:
-                    connection.stateUpdateHandler = nil
-                    cont.resume(throwing: SOCKS5Error.connectionCancelled)
-                default:
-                    break
+        return try await withTaskCancellationHandler {
+            let result = await withCheckedContinuation { (cont: CheckedContinuation<Result<NWConnection, Error>, Never>) in
+                gate.arm(cont)
+                connection.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready:
+                        connection.stateUpdateHandler = nil
+                        gate.resume(.success(connection))
+                    case .failed(let error):
+                        connection.stateUpdateHandler = nil
+                        gate.resume(.failure(error))
+                    case .cancelled:
+                        connection.stateUpdateHandler = nil
+                        gate.resume(.failure(SOCKS5Error.connectionCancelled))
+                    default:
+                        break
+                    }
                 }
+                connection.start(queue: .global(qos: .userInitiated))
             }
-            connection.start(queue: .global(qos: .userInitiated))
+            return try result.get()
+        } onCancel: {
+            connection.cancel()
+            gate.resume(.failure(SOCKS5Error.connectionCancelled))
         }
     }
 
     static func sendAll(connection: NWConnection, data: Data) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        try await withCancellableResult(Void.self) { resume in
             connection.send(
                 content: data,
                 completion: .contentProcessed { error in
                     if let error = error {
-                        cont.resume(throwing: error)
+                        resume(.failure(error))
                     } else {
-                        cont.resume()
+                        resume(.success(()))
                     }
                 })
         }
     }
 
     static func readExact(connection: NWConnection, count: Int) async throws -> Data {
-        try await withCheckedThrowingContinuation { cont in
+        try await withCancellableResult(Data.self) { resume in
             connection.receive(
                 minimumIncompleteLength: count,
                 maximumLength: count
             ) { data, _, _, error in
                 if let error = error {
-                    cont.resume(throwing: error)
+                    resume(.failure(error))
                 } else if let data = data, data.count >= count {
-                    cont.resume(returning: data)
+                    resume(.success(data))
                 } else {
-                    cont.resume(throwing: SOCKS5Error.unexpectedEOF)
+                    resume(.failure(SOCKS5Error.unexpectedEOF))
                 }
             }
         }
     }
 
     static func readSome(connection: NWConnection) async throws -> Data {
-        try await withCheckedThrowingContinuation { cont in
-            readSomeLoop(connection: connection, cont: cont)
+        let gate = OnceResume<Result<Data, Error>>()
+        return try await withTaskCancellationHandler {
+            let result = await withCheckedContinuation { (cont: CheckedContinuation<Result<Data, Error>, Never>) in
+                gate.arm(cont)
+                readSomeLoop(connection: connection, gate: gate)
+            }
+            return try result.get()
+        } onCancel: {
+            connection.cancel()
+            gate.resume(.failure(SOCKS5Error.connectionCancelled))
         }
     }
 
@@ -103,26 +119,46 @@ enum SOCKS5Client {
     /// yet would end the relay prematurely.
     private static func readSomeLoop(
         connection: NWConnection,
-        cont: CheckedContinuation<Data, Error>
+        gate: OnceResume<Result<Data, Error>>
     ) {
         connection.receive(
             minimumIncompleteLength: 1,
             maximumLength: 65536
         ) { data, _, isComplete, error in
             if let error = error {
-                cont.resume(throwing: error)
+                gate.resume(.failure(error))
             } else if let data = data, !data.isEmpty {
-                cont.resume(returning: data)
+                gate.resume(.success(data))
             } else if isComplete {
                 // Genuine remote close / end-of-stream.
-                cont.resume(returning: Data())
+                gate.resume(.success(Data()))
             } else {
                 // No data, no error, not complete. `receive` with
                 // minimumIncompleteLength: 1 shouldn't invoke the callback in
                 // this shape, but if it ever does, keep waiting rather than
                 // reporting a false end-of-stream.
-                readSomeLoop(connection: connection, cont: cont)
+                readSomeLoop(connection: connection, gate: gate)
             }
+        }
+    }
+
+    /// Bridge a Network.framework / NE callback to async, resuming exactly
+    /// once. Task cancellation force-resumes with `connectionCancelled` so a
+    /// callback that never fires (common after `NWConnection.cancel()` or
+    /// `NEAppProxyFlow.close*`) cannot pin the caller forever.
+    static func withCancellableResult<T: Sendable>(
+        _: T.Type = T.self,
+        _ body: (@escaping @Sendable (Result<T, Error>) -> Void) -> Void
+    ) async throws -> T {
+        let gate = OnceResume<Result<T, Error>>()
+        return try await withTaskCancellationHandler {
+            let result = await withCheckedContinuation { (cont: CheckedContinuation<Result<T, Error>, Never>) in
+                gate.arm(cont)
+                body { gate.resume($0) }
+            }
+            return try result.get()
+        } onCancel: {
+            gate.resume(.failure(SOCKS5Error.connectionCancelled))
         }
     }
 
@@ -201,5 +237,55 @@ enum SOCKS5Client {
         request.append(UInt8(destPort >> 8))
         request.append(UInt8(destPort & 0xFF))
         return request
+    }
+}
+
+// MARK: - One-shot resume gate
+
+/// Resumes a continuation exactly once. `arm` and `resume` may race:
+/// `withTaskCancellationHandler.onCancel` can fire before the continuation
+/// exists, and an NE / Network.framework callback can fire after cancel.
+///
+/// First `resume` wins. A `resume` that arrives before `arm` is parked and
+/// delivered when `arm` runs, so the waiter cannot hang either way.
+final class OnceResume<T>: @unchecked Sendable {
+    private enum State {
+        case idle
+        case waiting(CheckedContinuation<T, Never>)
+        case pending(T)
+        case done
+    }
+
+    private let lock = NSLock()
+    private var state: State = .idle
+
+    func arm(_ continuation: CheckedContinuation<T, Never>) {
+        lock.lock()
+        switch state {
+        case .pending(let value):
+            state = .done
+            lock.unlock()
+            continuation.resume(returning: value)
+        case .idle:
+            state = .waiting(continuation)
+            lock.unlock()
+        case .waiting, .done:
+            lock.unlock()
+        }
+    }
+
+    func resume(_ value: T) {
+        lock.lock()
+        switch state {
+        case .waiting(let continuation):
+            state = .done
+            lock.unlock()
+            continuation.resume(returning: value)
+        case .idle:
+            state = .pending(value)
+            lock.unlock()
+        case .pending, .done:
+            lock.unlock()
+        }
     }
 }
