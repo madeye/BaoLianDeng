@@ -18,6 +18,9 @@ final class ConfigManager {
     static let geodataFiles: [(name: String, ext: String, url: String)] = [
         ("Country", "mmdb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"),
         ("geosite", "dat", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"),
+        // IP-ASN rules need the GeoLite2-ASN schema; a missing ASN reader is a
+        // HARD config error in the engine, same as a missing Country.mmdb.
+        ("GeoLite2-ASN", "mmdb", "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"),
     ]
 
     private init() {}
@@ -48,7 +51,7 @@ final class ConfigManager {
     /// responses (e.g. an error page or a connection cut mid-transfer).
     private static let minGeodataFileSize = 1024
 
-    /// Ensure geodata files (Country.mmdb, geosite.dat) exist in the given directory.
+    /// Ensure geodata files (Country.mmdb, geosite.dat, GeoLite2-ASN.mmdb) exist in the given directory.
     /// Tries the app bundle first, then downloads from jsDelivr.
     func ensureGeodataFiles(configDir: String) {
         // Bound how long a stalled/slow download can block this call — it
