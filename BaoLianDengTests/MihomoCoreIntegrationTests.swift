@@ -78,6 +78,35 @@ struct MihomoCoreIntegrationTests {
         #expect(err == nil, "GEOIP rule validation failed: \(err?.localizedDescription ?? "")")
     }
 
+    @Test("Validates config with IP-ASN rule when geodata available")
+    func validatesIPASNRule() throws {
+        // IP-ASN needs GeoLite2-ASN.mmdb; a missing ASN reader is a hard
+        // config error in the engine (issue #86).
+        let tempDir = NSTemporaryDirectory() + "bld-test-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        ConfigManager.shared.ensureGeodataFiles(configDir: tempDir)
+        BridgeSetHomeDir(tempDir)
+
+        let config = """
+        mixed-port: 7890
+        mode: rule
+        proxies: []
+        proxy-groups:
+          - name: PROXY
+            type: select
+            proxies:
+              - DIRECT
+        rules:
+          - IP-ASN,20473,PROXY,no-resolve
+          - MATCH,PROXY
+        """
+        var err: NSError?
+        BridgeValidateConfig(config, &err)
+        #expect(err == nil, "IP-ASN rule validation failed: \(err?.localizedDescription ?? "")")
+    }
+
     @Test("Validates config with DNS settings")
     func validatesConfigWithDNS() {
         let config = """

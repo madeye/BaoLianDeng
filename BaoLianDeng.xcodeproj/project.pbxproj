@@ -82,6 +82,7 @@
 		T10047 /* ProxyEngineHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10046 /* ProxyEngineHelper.swift */; };
 		GEO002 /* Country.mmdb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* Country.mmdb */; };
 		GEO004 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
+		GEO006 /* GeoLite2-ASN.mmdb in Resources */ = {isa = PBXBuildFile; fileRef = GEO005 /* GeoLite2-ASN.mmdb */; };
 		AX10020 /* TransparentProxyProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TransparentProxyProvider.swift */; };
 		AX10021 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		AX10022 /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
@@ -95,6 +96,7 @@
 		AX10033 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = AX10040 /* Yams */; };
 		AX10034 /* Country.mmdb in Resources */ = {isa = PBXBuildFile; fileRef = GEO001 /* Country.mmdb */; };
 		AX10035 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = GEO003 /* geosite.dat */; };
+		AX10036 /* GeoLite2-ASN.mmdb in Resources */ = {isa = PBXBuildFile; fileRef = GEO005 /* GeoLite2-ASN.mmdb */; };
 		AX10051 /* TransparentProxy.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AX10010 /* TransparentProxy.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -214,6 +216,7 @@
 		T10046 /* ProxyEngineHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyEngineHelper.swift; sourceTree = "<group>"; };
 		GEO001 /* Country.mmdb */ = {isa = PBXFileReference; lastKnownFileType = file; path = Country.mmdb; sourceTree = "<group>"; };
 		GEO003 /* geosite.dat */ = {isa = PBXFileReference; lastKnownFileType = file; path = geosite.dat; sourceTree = "<group>"; };
+		GEO005 /* GeoLite2-ASN.mmdb */ = {isa = PBXFileReference; lastKnownFileType = file; path = "GeoLite2-ASN.mmdb"; sourceTree = "<group>"; };
 		AX10010 /* TransparentProxy.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TransparentProxy.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AX10080 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -280,6 +283,7 @@
 				809DB4CA51000087EE0949AF /* Info.plist */,
 				GEO001 /* Country.mmdb */,
 				GEO003 /* geosite.dat */,
+				GEO005 /* GeoLite2-ASN.mmdb */,
 			);
 			path = TransparentProxyMac;
 			sourceTree = "<group>";
@@ -584,6 +588,7 @@
 			files = (
 				GEO002 /* Country.mmdb in Resources */,
 				GEO004 /* geosite.dat in Resources */,
+				GEO006 /* GeoLite2-ASN.mmdb in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -593,6 +598,7 @@
 			files = (
 				AX10034 /* Country.mmdb in Resources */,
 				AX10035 /* geosite.dat in Resources */,
+				AX10036 /* GeoLite2-ASN.mmdb in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
