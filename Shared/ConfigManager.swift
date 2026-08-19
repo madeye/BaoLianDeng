@@ -590,6 +590,8 @@ final class ConfigManager {
     }
 
     /// Rewrite engine-required scalars inside an existing `dns:` section.
+    /// Also drops loopback `proxy-server-nameserver` entries — see
+    /// `dropSelfReferentialProxyNameservers`.
     private static func patchDNSSection(_ lines: inout [String], engineMode: EngineMode) {
         healSplitDNSBlock(&lines)
         let mode = engineMode == .localProxy ? "redir-host" : "fake-ip"
@@ -601,6 +603,117 @@ final class ConfigManager {
         } else {
             setSectionScalar(&lines, key: "fake-ip-range", value: "28.0.0.0/8")
         }
+        dropSelfReferentialProxyNameservers(&lines)
+    }
+
+    /// Drop loopback `proxy-server-nameserver` entries. Some subscription
+    /// exports set `listen: 127.0.0.1:PORT` together with
+    /// `proxy-server-nameserver: [udp://127.0.0.1:PORT]` so proxy server
+    /// hostnames resolve through the client's own DNS server. The engine
+    /// always rebinds DNS to an ephemeral loopback port at runtime, so any
+    /// fixed loopback pointer is stale: every node hostname lookup then times
+    /// out and outbound dials fail ("no address for <host>"). Matching on the
+    /// pre-patch `listen` port is not enough — a config saved by an older
+    /// build already shows `listen: 127.0.0.1:0` while the stale entry
+    /// survives, so loopback entries are dropped regardless of port. With
+    /// them removed, the engine resolves proxy server hostnames through the
+    /// regular `nameserver` list, dialed directly (nameserver entries without
+    /// an explicit `#PROXY` tag never go through a proxy). Entries pointing
+    /// at a non-loopback resolver stay untouched.
+    private static func dropSelfReferentialProxyNameservers(
+        _ lines: inout [String]
+    ) {
+        guard let keyIdx = lines.firstIndex(where: {
+            isYAMLKey($0.trimmingCharacters(in: .whitespaces), "proxy-server-nameserver")
+        }) else { return }
+
+        func isSelfReference(_ entry: String) -> Bool {
+            guard let (host, _) = splitHostPort(entry) else { return false }
+            return isLoopbackHost(host)
+        }
+
+        let keyLine = lines[keyIdx]
+        let keyIndent = String(keyLine.prefix { $0 == " " || $0 == "\t" })
+        if let inline = sectionScalarValue(
+            keyLine.trimmingCharacters(in: .whitespaces), key: "proxy-server-nameserver"
+        ), inline.hasPrefix("["), inline.hasSuffix("]") {
+            // Inline form: `proxy-server-nameserver: [a, b]`.
+            let entries = inline.dropFirst().dropLast()
+                .components(separatedBy: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let kept = entries.filter { !isSelfReference($0) }
+            if kept.isEmpty {
+                lines.remove(at: keyIdx)
+            } else if kept.count != entries.count {
+                lines[keyIdx] = "\(keyIndent)proxy-server-nameserver: [\(kept.joined(separator: ", "))]"
+            }
+            return
+        }
+
+        // Block form: a `key:` line followed by deeper-indented `- item` lines.
+        var kept = 0
+        var drop: [Int] = []
+        var lastItemIdx: Int?
+        var i = keyIdx + 1
+        while i < lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                i += 1
+                continue
+            }
+            let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+            guard indent.count > keyIndent.count, trimmed.hasPrefix("-") else { break }
+            let entry = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
+            if isSelfReference(entry) {
+                drop.append(i)
+            } else {
+                kept += 1
+            }
+            lastItemIdx = i
+            i += 1
+        }
+        if kept == 0, let lastItemIdx {
+            // No usable entry left: remove the key line, its dead list, and
+            // any blanks/comments in between.
+            lines.removeSubrange(keyIdx...lastItemIdx)
+        } else {
+            for idx in drop.reversed() {
+                lines.remove(at: idx)
+            }
+        }
+    }
+
+    /// Split a `listen` value or nameserver entry into host and port.
+    /// Tolerates `scheme://` prefixes, `#fragment` suffixes, quoted strings,
+    /// URL paths, and bracketed IPv6. A missing port comes back as nil.
+    private static func splitHostPort(_ entry: String) -> (String, UInt16?)? {
+        var s = entry.trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        if let scheme = s.range(of: "://") {
+            s = String(s[scheme.upperBound...])
+        }
+        if let hash = s.firstIndex(of: "#") {
+            s = String(s[..<hash])
+        }
+        if let slash = s.firstIndex(of: "/") {
+            s = String(s[..<slash])
+        }
+        guard !s.isEmpty else { return nil }
+        if s.hasPrefix("["), let close = s.firstIndex(of: "]") {
+            let host = String(s[s.index(after: s.startIndex)..<close])
+            let rest = s[s.index(after: close)...]
+            let port = rest.hasPrefix(":") ? UInt16(rest.dropFirst()) : nil
+            return (host, port)
+        }
+        guard let colon = s.lastIndex(of: ":") else { return (s, nil) }
+        guard let port = UInt16(s[s.index(after: colon)...]) else { return nil }
+        return (String(s[..<colon]), port)
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        host == "localhost" || host == "::1" || host.hasPrefix("127.")
     }
 
     /// Indent used by first-level keys under `dns:`.

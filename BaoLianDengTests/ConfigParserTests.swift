@@ -373,6 +373,110 @@ struct ForceManagedDNSTests {
         #expect(config.contains("enhanced-mode: fake-ip"))
     }
 
+    @Test("Drops proxy-server-nameserver entries that point at the old listen address")
+    func dropsSelfReferentialProxyServerNameserver() {
+        // Nexitally-style export: proxy server hostnames resolve through the
+        // client's own DNS listener. The engine moves that listener to an
+        // ephemeral port, so the self-reference must go or every node
+        // hostname lookup dies against a dead loopback port.
+        var config = """
+        mixed-port: 7890
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver:
+            - udp://127.0.0.1:7874
+          default-nameserver:
+            - 223.5.5.5
+          nameserver:
+            - https://doh.example/dns-query
+        proxies: []
+        rules:
+          - MATCH,DIRECT
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(!config.contains("proxy-server-nameserver"))
+        #expect(!config.contains("7874"))
+        #expect(config.contains("listen: 127.0.0.1:0"))
+        #expect(config.contains("https://doh.example/dns-query"))
+        #expect(config.contains("223.5.5.5"))
+    }
+
+    @Test("Keeps proxy-server-nameserver entries pointing at a real resolver")
+    func keepsExternalProxyServerNameserver() {
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver:
+            - 223.5.5.5
+            - udp://127.0.0.1:7874
+          nameserver:
+            - 1.1.1.1
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config.contains("proxy-server-nameserver:"))
+        #expect(config.contains("- 223.5.5.5"))
+        #expect(!config.contains("7874"))
+    }
+
+    @Test("Drops an inline self-referential proxy-server-nameserver list")
+    func dropsInlineSelfReferentialList() {
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver: [udp://127.0.0.1:7874]
+          nameserver:
+            - 1.1.1.1
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(!config.contains("proxy-server-nameserver"))
+    }
+
+    @Test("Self-reference drop is idempotent")
+    func selfReferenceDropIdempotent() {
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver:
+            - udp://127.0.0.1:7874
+          nameserver:
+            - 1.1.1.1
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        let once = config
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config == once)
+    }
+
+    @Test("Drops a stale loopback proxy-server-nameserver after listen was already rewritten")
+    func dropsStaleLoopbackAfterListenRewrite() {
+        // Saved by a build that had already forced listen to an ephemeral
+        // port: no original port left to match against, yet the loopback
+        // pointer is still dead and must go.
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:0
+          proxy-server-nameserver:
+            - udp://127.0.0.1:7874
+          default-nameserver:
+            - 223.5.5.5
+          nameserver:
+            - https://doh.example/dns-query
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(!config.contains("proxy-server-nameserver"))
+        #expect(!config.contains("7874"))
+        #expect(config.contains("223.5.5.5"))
+    }
+
     @Test("Idempotent on an already-managed config")
     func idempotent() {
         var config = "mixed-port: 7890\n\(ConfigManager.managedDNSSection)\nproxies: []\n"
