@@ -647,58 +647,6 @@ struct ProxyGroupSerializationTests {
 
 }
 
-@Suite("Proxy server hostname rewrite")
-struct ProxyServerHostnameRewriteTests {
-
-    @Test("Rewrites only exact server scalar matches")
-    func rewritesOnlyExactServerScalarMatches() {
-        let yaml = """
-        proxies:
-          - name: exact
-            server: example.com
-          - name: prefix
-            server: example.com.hk
-          - name: quoted
-            server: "example.com"
-          - name: single-quoted
-            server: 'example.com'
-          - name: comment
-            server: example.com # pre-resolved at startup
-          - name: different-key
-            servername: example.com
-        """
-
-        let rewritten = ConfigManager.rewriteProxyServerHostnames(
-            in: yaml,
-            hostToIP: ["example.com": "93.184.216.34"]
-        )
-
-        #expect(rewritten.contains("server: 93.184.216.34\n"))
-        #expect(rewritten.contains("server: example.com.hk"))
-        #expect(rewritten.contains("server: \"93.184.216.34\""))
-        #expect(rewritten.contains("server: '93.184.216.34'"))
-        #expect(rewritten.contains("server: 93.184.216.34 # pre-resolved at startup"))
-        #expect(rewritten.contains("servername: example.com"))
-        #expect(!rewritten.contains("93.184.216.34.hk"))
-    }
-
-    @Test("Leaves unknown server values unchanged")
-    func leavesUnknownServerValuesUnchanged() {
-        let yaml = """
-        proxies:
-          - name: untouched
-            server: other.example
-        """
-
-        let rewritten = ConfigManager.rewriteProxyServerHostnames(
-            in: yaml,
-            hostToIP: ["example.com": "93.184.216.34"]
-        )
-
-        #expect(rewritten == yaml)
-    }
-}
-
 @Suite("Rule serialization")
 struct RuleSerializationTests {
 

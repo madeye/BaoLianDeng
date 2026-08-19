@@ -1081,8 +1081,8 @@ final class ConfigManager {
         return result
     }
 
-    /// Extracts the scalar value of `key:` from a raw config line, matching
-    /// `rewriteServerLine`'s indentation- and quote-aware parsing.
+    /// Extracts the scalar value of `key:` from a raw config line,
+    /// indentation- and quote-aware.
     private static func scalarValue(afterKey key: String, in line: String) -> String {
         let indent = line.prefix { $0 == " " || $0 == "\t" }
         let rest = line.dropFirst(indent.count)
@@ -1101,41 +1101,6 @@ final class ConfigManager {
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\t", with: "\\t")
         return "\"\(escaped)\""
-    }
-
-    static func rewriteProxyServerHostnames(
-        in yaml: String,
-        hostToIP: [String: String]
-    ) -> String {
-        guard !hostToIP.isEmpty else { return yaml }
-        return yaml.components(separatedBy: "\n")
-            .map { rewriteServerLine($0, hostToIP: hostToIP) }
-            .joined(separator: "\n")
-    }
-
-    private static func rewriteServerLine(_ line: String, hostToIP: [String: String]) -> String {
-        let indent = line.prefix { $0 == " " || $0 == "\t" }
-        let rest = line.dropFirst(indent.count)
-        guard rest.hasPrefix("server:") else { return line }
-
-        let afterColon = rest.dropFirst("server:".count)
-        let valueStart = afterColon.prefix { $0 == " " || $0 == "\t" }
-        let valueAndComment = String(afterColon.dropFirst(valueStart.count))
-        guard !valueAndComment.isEmpty else { return line }
-
-        let parsed = parseYAMLScalarWithComment(valueAndComment)
-        guard let replacement = hostToIP[parsed.value] else { return line }
-
-        let quotedReplacement: String
-        switch parsed.quote {
-        case "\"":
-            quotedReplacement = yamlQuotedString(replacement)
-        case "'":
-            quotedReplacement = "'\(replacement.replacingOccurrences(of: "'", with: "''"))'"
-        default:
-            quotedReplacement = replacement
-        }
-        return "\(indent)server:\(valueStart)\(quotedReplacement)\(parsed.comment)"
     }
 
     private static func parseYAMLScalarWithComment(_ s: String) -> (value: String, quote: Character?, comment: String) {
