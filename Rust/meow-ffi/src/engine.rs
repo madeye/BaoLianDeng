@@ -153,6 +153,31 @@ pub async fn assemble(
     let external_ui = config.api.external_ui.clone();
     let resolver = Arc::clone(&config.dns.resolver);
 
+    // Install the configured resolver as the global host-resolver hook that
+    // `meow_common::connect_tcp_host` consults, so a proxy node's own
+    // `server:` hostname resolves through the `dns:` section rather than
+    // libc `getaddrinfo`. `meow_app::run()` does this for the `meow` binary;
+    // this crate assembles the engine itself, so it has to install the hook
+    // itself too. `dns.proxy-server-nameserver`, when set, takes over
+    // exclusively for these lookups (mihomo `ProxyServerHostResolver`).
+    //
+    // Gated on `dns.enable` exactly as `meow_app::run()` gates it: with DNS
+    // off, `config.dns.resolver` is a stub pointing at a hard-coded upstream
+    // and forcing every proxy dial through it would be worse than the OS
+    // resolver. The app's `sanitizeConfig()` forces `enable: true`, so the
+    // hook is installed in practice; the else-branch keeps a start with DNS
+    // somehow disabled from inheriting a previous run's hook.
+    if config.dns.enabled {
+        meow_common::set_host_resolver(Arc::new(
+            meow_dns::ResolverHostHook::new_with_proxy_resolver(
+                Arc::clone(&config.dns.resolver),
+                config.dns.proxy_resolver.clone(),
+            ),
+        ));
+    } else {
+        meow_common::clear_host_resolver();
+    }
+
     // Core routing engine.
     let tunnel = Tunnel::new(Arc::clone(&config.dns.resolver));
     tunnel.set_mode(config.general.mode);

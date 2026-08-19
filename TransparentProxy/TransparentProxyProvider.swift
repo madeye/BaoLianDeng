@@ -6,7 +6,6 @@
 import MihomoCore
 import Network
 import os
-import Yams
 
 // MARK: - Transparent Proxy Provider
 
@@ -95,10 +94,13 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         ConfigManager.shared.sanitizeConfig()
         log("Config sanitized")
 
-        // Pre-resolve proxy server hostnames while DNS still works
-        let resolvedIPs = preResolveProxyServers(configPath: configPath)
-        log("Pre-resolved \(resolvedIPs.count) proxy server IP(s)")
-
+        // Proxy server hostnames are NOT pre-resolved here. The engine
+        // installs `meow_common::set_host_resolver`, so it resolves its own
+        // `server:` hostnames through the config's `dns:` section — which is
+        // what the user configured and what mihomo does. Resolving them here
+        // via CFHost would use the system resolver and rewrite the config to
+        // IP literals, leaving the engine nothing to resolve and the `dns:`
+        // section bypassed for exactly the lookups it was pointed at.
         if let cfg = try? String(contentsOfFile: configPath, encoding: .utf8) {
             log("config.yaml preview: \(String(cfg.prefix(300)))")
         }
@@ -837,71 +839,6 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         if trimmed.count < content.count {
             try? trimmed.write(to: url, atomically: true, encoding: .utf8)
         }
-    }
-
-    private func preResolveProxyServers(configPath: String) -> Set<String> {
-        guard var yaml = try? String(
-            contentsOfFile: configPath, encoding: .utf8
-        ) else { return [] }
-
-        guard let dict = (try? Yams.load(yaml: yaml)) as? [String: Any],
-            let proxies = dict["proxies"] as? [[String: Any]]
-        else { return [] }
-
-        var hostToIP: [String: String] = [:]
-        var allIPs = Set<String>()
-        for proxy in proxies {
-            guard let server = proxy["server"] as? String, !server.isEmpty
-            else { continue }
-            if server.contains(":") { continue }
-            if IPv4Address(server) != nil {
-                allIPs.insert(server)
-                continue
-            }
-            if hostToIP[server] != nil { continue }
-
-            if let resolvedIP = resolveHostnameToIPv4(server) {
-                hostToIP[server] = resolvedIP
-                allIPs.insert(resolvedIP)
-                log("Resolved proxy server: \(server) -> \(resolvedIP)")
-            }
-        }
-
-        if !hostToIP.isEmpty {
-            yaml = ConfigManager.rewriteProxyServerHostnames(in: yaml, hostToIP: hostToIP)
-            try? yaml.write(
-                toFile: configPath, atomically: true, encoding: .utf8
-            )
-            log(
-                "Config rewritten with \(hostToIP.count) resolved proxy server IP(s)"
-            )
-        }
-
-        return allIPs
-    }
-
-    private func resolveHostnameToIPv4(_ hostname: String) -> String? {
-        let hostRef = CFHostCreateWithName(nil, hostname as CFString)
-            .takeRetainedValue()
-        var resolved = DarwinBoolean(false)
-        CFHostStartInfoResolution(hostRef, .addresses, nil)
-        guard
-            let addresses = CFHostGetAddressing(hostRef, &resolved)?
-                .takeUnretainedValue() as? [Data]
-        else { return nil }
-        for addrData in addresses {
-            guard addrData.count >= MemoryLayout<sockaddr_in>.size else {
-                continue
-            }
-            var addr = sockaddr_in()
-            _ = withUnsafeMutableBytes(of: &addr) {
-                addrData.copyBytes(to: $0)
-            }
-            if addr.sin_family == UInt8(AF_INET) {
-                return String(cString: inet_ntoa(addr.sin_addr))
-            }
-        }
-        return nil
     }
 
     private func responseData(_ dict: [String: Any]) -> Data? {

@@ -373,6 +373,110 @@ struct ForceManagedDNSTests {
         #expect(config.contains("enhanced-mode: fake-ip"))
     }
 
+    @Test("Drops proxy-server-nameserver entries that point at the old listen address")
+    func dropsSelfReferentialProxyServerNameserver() {
+        // Nexitally-style export: proxy server hostnames resolve through the
+        // client's own DNS listener. The engine moves that listener to an
+        // ephemeral port, so the self-reference must go or every node
+        // hostname lookup dies against a dead loopback port.
+        var config = """
+        mixed-port: 7890
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver:
+            - udp://127.0.0.1:7874
+          default-nameserver:
+            - 223.5.5.5
+          nameserver:
+            - https://doh.example/dns-query
+        proxies: []
+        rules:
+          - MATCH,DIRECT
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(!config.contains("proxy-server-nameserver"))
+        #expect(!config.contains("7874"))
+        #expect(config.contains("listen: 127.0.0.1:0"))
+        #expect(config.contains("https://doh.example/dns-query"))
+        #expect(config.contains("223.5.5.5"))
+    }
+
+    @Test("Keeps proxy-server-nameserver entries pointing at a real resolver")
+    func keepsExternalProxyServerNameserver() {
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver:
+            - 223.5.5.5
+            - udp://127.0.0.1:7874
+          nameserver:
+            - 1.1.1.1
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config.contains("proxy-server-nameserver:"))
+        #expect(config.contains("- 223.5.5.5"))
+        #expect(!config.contains("7874"))
+    }
+
+    @Test("Drops an inline self-referential proxy-server-nameserver list")
+    func dropsInlineSelfReferentialList() {
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver: [udp://127.0.0.1:7874]
+          nameserver:
+            - 1.1.1.1
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(!config.contains("proxy-server-nameserver"))
+    }
+
+    @Test("Self-reference drop is idempotent")
+    func selfReferenceDropIdempotent() {
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:7874
+          proxy-server-nameserver:
+            - udp://127.0.0.1:7874
+          nameserver:
+            - 1.1.1.1
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        let once = config
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config == once)
+    }
+
+    @Test("Drops a stale loopback proxy-server-nameserver after listen was already rewritten")
+    func dropsStaleLoopbackAfterListenRewrite() {
+        // Saved by a build that had already forced listen to an ephemeral
+        // port: no original port left to match against, yet the loopback
+        // pointer is still dead and must go.
+        var config = """
+        dns:
+          enable: true
+          listen: 127.0.0.1:0
+          proxy-server-nameserver:
+            - udp://127.0.0.1:7874
+          default-nameserver:
+            - 223.5.5.5
+          nameserver:
+            - https://doh.example/dns-query
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(!config.contains("proxy-server-nameserver"))
+        #expect(!config.contains("7874"))
+        #expect(config.contains("223.5.5.5"))
+    }
+
     @Test("Idempotent on an already-managed config")
     func idempotent() {
         var config = "mixed-port: 7890\n\(ConfigManager.managedDNSSection)\nproxies: []\n"
@@ -645,58 +749,6 @@ struct ProxyGroupSerializationTests {
         #expect(global?.proxies == ["Old Node 05", "Fish", "DIRECT"])
     }
 
-}
-
-@Suite("Proxy server hostname rewrite")
-struct ProxyServerHostnameRewriteTests {
-
-    @Test("Rewrites only exact server scalar matches")
-    func rewritesOnlyExactServerScalarMatches() {
-        let yaml = """
-        proxies:
-          - name: exact
-            server: example.com
-          - name: prefix
-            server: example.com.hk
-          - name: quoted
-            server: "example.com"
-          - name: single-quoted
-            server: 'example.com'
-          - name: comment
-            server: example.com # pre-resolved at startup
-          - name: different-key
-            servername: example.com
-        """
-
-        let rewritten = ConfigManager.rewriteProxyServerHostnames(
-            in: yaml,
-            hostToIP: ["example.com": "93.184.216.34"]
-        )
-
-        #expect(rewritten.contains("server: 93.184.216.34\n"))
-        #expect(rewritten.contains("server: example.com.hk"))
-        #expect(rewritten.contains("server: \"93.184.216.34\""))
-        #expect(rewritten.contains("server: '93.184.216.34'"))
-        #expect(rewritten.contains("server: 93.184.216.34 # pre-resolved at startup"))
-        #expect(rewritten.contains("servername: example.com"))
-        #expect(!rewritten.contains("93.184.216.34.hk"))
-    }
-
-    @Test("Leaves unknown server values unchanged")
-    func leavesUnknownServerValuesUnchanged() {
-        let yaml = """
-        proxies:
-          - name: untouched
-            server: other.example
-        """
-
-        let rewritten = ConfigManager.rewriteProxyServerHostnames(
-            in: yaml,
-            hostToIP: ["example.com": "93.184.216.34"]
-        )
-
-        #expect(rewritten == yaml)
-    }
 }
 
 @Suite("Rule serialization")

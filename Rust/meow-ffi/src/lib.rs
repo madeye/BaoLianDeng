@@ -398,6 +398,10 @@ pub unsafe extern "C" fn bridge_start_with_ports(
             }
             Err(e) => {
                 *CONTROLLER_SECRET.lock() = None;
+                // `assemble` may have installed the host-resolver hook before
+                // failing (a listener bind error comes later); don't leave a
+                // hook pointing at a resolver whose engine never started.
+                meow_common::clear_host_resolver();
                 set_error(format!("start proxy: {e}"));
                 -1
             }
@@ -410,6 +414,11 @@ pub extern "C" fn bridge_stop_proxy() {
     guard((), || {
         let mut engine = ENGINE.lock();
         *CONTROLLER_SECRET.lock() = None;
+        // Drop the global host-resolver hook with the engine that installed
+        // it: it holds an `Arc<Resolver>` from the stopped engine's config,
+        // and leaving it installed would keep serving lookups (and pin the
+        // old DNS cache) after `BridgeStopProxy`.
+        meow_common::clear_host_resolver();
         if let Some(mut state) = engine.take() {
             // Fold the final traffic snapshot into the process-lifetime base
             // before dropping the engine (and its per-instance Statistics).
@@ -505,7 +514,7 @@ pub extern "C" fn bridge_version() -> *const c_char {
     // meow crate version at the pinned rev; cosmetic (Swift never parses it).
     match catch_unwind(AssertUnwindSafe(|| {
         VERSION
-            .get_or_init(|| CString::new("meow-rs 0.20.1").unwrap())
+            .get_or_init(|| CString::new("meow-rs 0.20.2").unwrap())
             .as_ptr()
     })) {
         Ok(ptr) => ptr,
@@ -979,6 +988,49 @@ rules:
 
         bridge_stop_proxy();
         assert!(!bridge_is_running());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The engine must install the global host-resolver hook while running,
+    /// so a proxy node's `server:` hostname is resolved by the config's `dns:`
+    /// section instead of libc `getaddrinfo`, and must drop it on stop.
+    #[test]
+    fn host_resolver_hook_installed_while_running() {
+        let _g = TEST_LOCK.lock();
+
+        let dir = std::env::temp_dir().join(format!("meow-ffi-hook-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.yaml"), MINIMAL_CONFIG).unwrap();
+        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
+
+        meow_common::clear_host_resolver();
+        assert!(
+            meow_common::host_resolver().is_none(),
+            "hook set before start"
+        );
+
+        let ctrl_c = CString::new(format!("127.0.0.1:{}", free_port())).unwrap();
+        let secret_c = CString::new("").unwrap();
+        let rc = unsafe {
+            bridge_start_with_ports(free_port(), free_port(), ctrl_c.as_ptr(), secret_c.as_ptr())
+        };
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, 0, "start failed: {err}");
+        assert!(
+            meow_common::host_resolver().is_some(),
+            "engine started without installing the host-resolver hook: proxy \
+             server hostnames would fall back to libc getaddrinfo"
+        );
+
+        bridge_stop_proxy();
+        assert!(
+            meow_common::host_resolver().is_none(),
+            "host-resolver hook outlived the engine that installed it"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
