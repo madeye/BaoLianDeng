@@ -41,11 +41,8 @@ xcodebuild build \
   -destination 'platform=macOS' 2>&1 | tail -3
 
 echo "=== Step 5: Install ==="
-# Use sudo because a previously PKG-installed copy is owned by root.
-# This will prompt for a password the first time per sudo session.
-sudo rm -rf "$APP_PATH"
-sudo cp -R ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app "$APP_PATH"
-sudo chown -R "$USER":staff "$APP_PATH"
+rm -rf "$APP_PATH"
+cp -R ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app "$APP_PATH"
 
 echo "=== Step 6: Launch app ==="
 open "$APP_PATH"
