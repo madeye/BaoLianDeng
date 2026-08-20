@@ -15,19 +15,22 @@ crate-type = ["staticlib"]
 # meow-rs kernel crates, pinned to a single git rev (== local checkout HEAD).
 # Protocol features mirror meow-app's `full` protocol set, INCLUDING
 # `ech-tls-tunnel` (pulls rustls/aws_lc_rs via meow-transport's `ech` feature —
-# aws-lc-sys builds fine for both darwin arches). Only `boring-tls` is left
-# off (BoringSSL needs cmake/C++ per arch, breaking the universal-lipo build);
-# since meow-rs #377 REALITY rides with `vless` and no longer needs boring-tls.
+# aws-lc-sys builds fine for both darwin arches) and `boring-tls`, which is
+# what makes `client-fingerprint:` (uTLS Client Hello spoofing) actually take
+# effect; without it meow-transport parses the key, warns once, and falls back
+# to a plain rustls Client Hello. boring-sys vendors BoringSSL and builds it
+# with cmake per arch — both darwin arches compile, so the universal lipo
+# still works (see Makefile).
 meow-common = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
-meow-config = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vless-encryption", "vmess", "snell", "hysteria2", "anytls", "ech-tls-tunnel"] }
+meow-config = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vless-encryption", "vmess", "snell", "hysteria2", "anytls", "ech-tls-tunnel", "boring-tls"] }
 meow-dns = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
 meow-tunnel = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
 meow-listener = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d", default-features = false, features = ["listener-mixed"] }
 meow-api = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
 # meow-app is pulled in ONLY for its `health_check` lib helpers (url-test /
-# fallback group probing). default-features = false drops its `full` +
-# `boring-tls` bundle so no BoringSSL leaks in; protocol features come from
-# meow-config above and unify onto the shared crate instances.
+# fallback group probing). default-features = false drops its `full` bundle;
+# protocol features (including boring-tls) come from meow-config above and
+# unify onto the shared crate instances.
 meow-app = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d", default-features = false }
 
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
@@ -37,7 +40,8 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry"] }
 # ring-backed rustls for our own diagnostics client. Note aws_lc_rs is now in
-# the tree anyway via meow-transport's `ech` feature (ech-tls-tunnel above).
+# the tree anyway via meow-transport's `ech` feature (ech-tls-tunnel above),
+# and BoringSSL via `boring-tls`.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 # Diagnostics HTTP client: SOCKS5 + rustls(ring); no default (native-tls/openssl).
 reqwest = { version = "0.12", default-features = false, features = ["socks", "json", "rustls-tls"] }
