@@ -79,7 +79,10 @@ enum ProxyEngineHelper {
         socksPort: UInt16,
         timeout: Int = 10
     ) -> (output: String, exitCode: Int32) {
-        curl(url: url, proxyArgs: ["--socks5", "127.0.0.1:\(socksPort)"], timeout: timeout)
+        // socks5h: send the hostname to the engine. `--socks5` resolves
+        // locally first, which fails when system DNS is still holding a
+        // leftover fake-ip (or a hanging AAAA) from a previous tunnel.
+        curl(url: url, proxyArgs: ["--socks5-hostname", "127.0.0.1:\(socksPort)"], timeout: timeout)
     }
 
     /// Run curl through the HTTP side of the mixed listener — the path
