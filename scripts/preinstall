@@ -1,8 +1,9 @@
 #!/bin/bash
 # PKG preinstall script: remove existing BaoLianDeng before installing the new version.
-# macOS automatically upgrades the system extension when the new app bundle
-# (same team ID + bundle ID) replaces the old one, so we just need to stop
-# the VPN and remove the old app.
+# Stopping the VPN and deleting the old bundle is enough: the App Store /
+# local path loads TransparentProxy.appex from the new app, and Developer ID
+# upgrades the system extension when the new bundle (same team ID + bundle
+# ID) replaces the old one.
 
 APP="/Applications/BaoLianDeng.app"
 

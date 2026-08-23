@@ -42,10 +42,11 @@ final class VPNManager: NSObject, ObservableObject {
     private var manager: NETransparentProxyManager?
     private var statusObserver: NSObjectProtocol?
 
-    /// True when the provider ships as an app extension in PlugIns (Mac App
-    /// Store packaging) instead of a system extension. Appexes need no
-    /// OSSystemExtensionRequest activation or System Settings approval —
-    /// the system launches them directly from the app bundle.
+    /// True when the provider ships as an app extension in PlugIns (MAS /
+    /// Debug / local Release) instead of a system extension. Appexes need no
+    /// OSSystemExtensionRequest activation — the system launches them from
+    /// the app bundle. Network Extension toggle in System Settings may still
+    /// be required on first launch.
     static let providerIsAppExtension: Bool = {
         guard let plugins = Bundle.main.builtInPlugInsURL,
               let items = try? FileManager.default.contentsOfDirectory(atPath: plugins.path) else {
@@ -57,12 +58,12 @@ final class VPNManager: NSObject, ObservableObject {
     private override init() {
         super.init()
         engineMode = EngineMode.load(from: AppConstants.sharedDefaults)
-        // Don't touch the system extension or the user's real NE preferences
+        // Don't touch the network extension or the user's real NE preferences
         // when the app is only hosting unit tests.
         if AppConstants.isRunningUnitTests {
             return
         }
-        // Local proxy mode never touches the system extension or NE
+        // Local proxy mode never touches the network extension or NE
         // preferences — a local-only user should see no approval prompts
         // or "add VPN configurations" dialogs.
         if engineMode == .localProxy {

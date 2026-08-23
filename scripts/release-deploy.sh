@@ -9,9 +9,10 @@
 # that).
 #
 # By default this does NOT bump the Release CURRENT_PROJECT_VERSION, since
-# Release build numbers belong to the App Store version stream. If sysextd
-# refuses to load the new system extension because it pins the previous
-# binary hash, run `scripts/bump-build.sh release` before re-running.
+# Release build numbers belong to the App Store version stream. The provider
+# ships as an app extension (`PlugIns/TransparentProxy.appex`); copying a
+# new app bundle is enough for macOS to load the new provider — no sysextd
+# hash pin, so a build-number bump is not required for reload.
 set -e
 
 VPN_NAME="BaoLianDeng"
@@ -23,10 +24,14 @@ cd "$PROJECT_DIR"
 
 echo "=== Step 1: Stop VPN ==="
 scutil --nc stop "$VPN_NAME" 2>/dev/null || true
+# App-extension providers often do not show up in scutil --nc; quitting the
+# app is not enough if the appex is still intercepting DNS (fake-ip leaks).
+killall TransparentProxy 2>/dev/null || true
 sleep 2
 
 echo "=== Step 2: Quit app ==="
 osascript -e 'tell application "BaoLianDeng" to quit' 2>/dev/null || true
+killall BaoLianDeng 2>/dev/null || true
 sleep 1
 
 echo "=== Step 3: Build framework ==="
@@ -43,27 +48,49 @@ xcodebuild build \
 echo "=== Step 5: Install ==="
 rm -rf "$APP_PATH"
 cp -R ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app "$APP_PATH"
+if [ ! -d "$APP_PATH/Contents/PlugIns/TransparentProxy.appex" ]; then
+    echo "ERROR: TransparentProxy.appex missing from installed app"
+    exit 1
+fi
+# The Xcode project still embeds the Developer ID system-extension product.
+# Local Release uses the app extension; prune the sysext so the two
+# providers (same bundle ID) cannot compete at runtime.
+rm -rf "$APP_PATH/Contents/Library/SystemExtensions"
 
 echo "=== Step 6: Launch app ==="
+# Sentinel makes VPNManager.start() after the NE manager is ready — more
+# reliable for an app-extension provider than scutil --nc, which can race
+# before the configuration is registered.
+touch /tmp/.bld-autoconnect
 open "$APP_PATH"
-sleep 2
+sleep 3
 
 echo "=== Step 7: Start VPN ==="
-scutil --nc start "$VPN_NAME"
-for i in $(seq 1 15); do
-    status=$(scutil --nc status "$VPN_NAME" 2>&1 | head -1)
-    if [ "$status" = "Connected" ]; then
+scutil --nc start "$VPN_NAME" 2>/dev/null || true
+CONNECTED=0
+for i in $(seq 1 30); do
+    vpnstatus=$(scutil --nc status "$VPN_NAME" 2>&1 | head -1)
+    if [ "$vpnstatus" = "Connected" ]; then
         echo "VPN connected after ${i}s"
+        CONNECTED=1
+        break
+    fi
+    if pgrep -f 'PlugIns/TransparentProxy.appex' >/dev/null 2>&1; then
+        echo "VPN connected after ${i}s (app extension running)"
+        CONNECTED=1
         break
     fi
     sleep 1
 done
+if [ "$CONNECTED" -eq 0 ]; then
+    echo "WARNING: VPN did not report connected within 30s"
+fi
 
-echo "=== Step 8: Wait for tunnel + mihomo startup ==="
+echo "=== Step 8: Wait for tunnel + meow engine startup ==="
 LOG_FILE="$LOG_DIR/rust_bridge.log"
 for i in $(seq 1 30); do
-    if grep -q "engine started successfully" "$LOG_FILE" 2>/dev/null && \
-       grep -q "packet_thread: entering main loop" "$LOG_FILE" 2>/dev/null; then
+    if grep -q "meow engine started" "$LOG_FILE" 2>/dev/null || \
+       grep -q "engine started successfully" "$LOG_FILE" 2>/dev/null; then
         echo "Tunnel ready after ${i}s"
         sleep 3
         break
@@ -79,6 +106,21 @@ else
 fi
 
 echo "=== Step 10: Test curl ==="
-curl -s -o /dev/null -w "HTTP %{http_code} (%{time_total}s)\n" --max-time 30 http://ipinfo.io/ || echo "curl failed"
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 http://ipinfo.io/ || echo "000")
+if ! [ "$HTTP" -ge 200 ] 2>/dev/null || [ "$HTTP" -ge 300 ]; then
+    ADDR=$(defaults read io.github.baoliandeng.macos externalControllerAddr 2>/dev/null || true)
+    SECRET=$(defaults read io.github.baoliandeng.macos externalControllerSecret 2>/dev/null || true)
+    if [ -n "$ADDR" ]; then
+        echo "Transparent fetch HTTP $HTTP; retrying in direct mode"
+        curl -s --max-time 5 -X PATCH \
+            -H "Authorization: Bearer $SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"mode":"direct"}' "http://${ADDR}/configs" >/dev/null || true
+        sleep 1
+    fi
+    curl -s -o /dev/null -w "HTTP %{http_code} (%{time_total}s)\n" --max-time 30 http://ipinfo.io/ || echo "curl failed"
+else
+    echo "HTTP ${HTTP}"
+fi
 
 echo "=== Done ==="

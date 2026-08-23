@@ -30,7 +30,7 @@ enum AppConstants {
     static let lanSharingSettingsKey = "lanSharingSettings"
     static let autoStartVPNAtLoginKey = "autoStartVPNAtLogin"
     /// UserDefaults key holding the selected `EngineMode` raw value.
-    /// Absent means `.vpn` (the transparent-proxy system extension).
+    /// Absent means `.vpn` (the transparent-proxy app extension).
     static let engineModeKey = "engineMode"
     /// UserDefaults key for the local proxy listener port (Int). Unlike the
     /// transparent-proxy path (ephemeral, internal-only ports), local proxy
@@ -221,7 +221,7 @@ enum EphemeralPort {
 /// NETransparentProxyProvider extension and intercepts all traffic;
 /// `.localProxy` runs it inside the app process as a plain HTTP/SOCKS5
 /// listener on 127.0.0.1 that apps must be pointed at explicitly — no
-/// system extension, approval prompt, or VPN configuration required.
+/// network extension, approval prompt, or VPN configuration required.
 enum EngineMode: String, CaseIterable, Identifiable {
     case vpn = "vpn"
     case localProxy = "local"

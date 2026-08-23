@@ -1,6 +1,7 @@
 #!/bin/bash
 # BaoLianDeng E2E Test Runner (host side)
-# Builds app, boots macOS VM with SIP disabled, installs, starts VPN, verifies
+# Builds app, boots macOS VM, installs, starts VPN, verifies.
+# The provider is an app extension, so the VM does not need SIP disabled.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

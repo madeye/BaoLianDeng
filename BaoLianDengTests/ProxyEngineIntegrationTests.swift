@@ -8,7 +8,7 @@ import Testing
 @testable import BaoLianDeng
 
 /// Integration tests that start/stop the mihomo engine directly via bridge
-/// functions — no VPN tunnel, no system extension, CI-compatible.
+/// functions — no VPN tunnel, no network extension, CI-compatible.
 ///
 /// All engine tests must be serialized because BridgeSetHomeDir and the
 /// proxy listener ports (chosen ephemerally per run, but still

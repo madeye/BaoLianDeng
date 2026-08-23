@@ -2,6 +2,7 @@
 # Build a Mac App Store PKG for upload to App Store Connect.
 #
 # Differences from the Developer ID build (build-release-pkg.sh):
+#   - Provider is the app extension (PlugIns/TransparentProxy.appex).
 #   - Network Extension entitlement uses the App Store variant
 #     ("app-proxy-provider", no "-systemextension" suffix) via
 #     NE_PROVIDER_SUFFIX="" override.
@@ -74,10 +75,10 @@ xcodebuild archive \
   | tail -3
 
 echo "=== Step 2b: Prune system extension (MAS ships the appex) ==="
-# Both provider packagings are embedded during the build. App Store builds
-# ship only the app extension (PlugIns/TransparentProxy.appex); the system
-# extension is the Developer ID packaging (TN3134: appex is App Store-only).
-# exportArchive re-signs the app, so the modified bundle gets a fresh seal.
+# Both provider packagings are embedded during the build. App Store / local
+# builds ship only the app extension (PlugIns/TransparentProxy.appex); the
+# system extension is Developer ID-only (TN3134). exportArchive re-signs
+# the app, so the modified bundle gets a fresh seal.
 APP_IN_ARCHIVE="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
 rm -rf "${APP_IN_ARCHIVE}/Contents/Library/SystemExtensions"
 if [ ! -d "${APP_IN_ARCHIVE}/Contents/PlugIns/TransparentProxy.appex" ]; then

@@ -1,6 +1,6 @@
 [package]
 name = "meow-ffi"
-version = "0.20.2"
+version = "0.21.0"
 edition = "2021"
 rust-version = "1.89"
 license = "MIT"
@@ -21,17 +21,17 @@ crate-type = ["staticlib"]
 # to a plain rustls Client Hello. boring-sys vendors BoringSSL and builds it
 # with cmake per arch — both darwin arches compile, so the universal lipo
 # still works (see Makefile).
-meow-common = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
-meow-config = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vless-encryption", "vmess", "snell", "hysteria2", "anytls", "ech-tls-tunnel", "boring-tls"] }
-meow-dns = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
-meow-tunnel = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
-meow-listener = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d", default-features = false, features = ["listener-mixed"] }
-meow-api = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d" }
+meow-common = { git = "https://github.com/madeye/meow-rs.git", rev = "ac3fcd8d77ce437749b5f5e504dee020e0d99e0e" }
+meow-config = { git = "https://github.com/madeye/meow-rs.git", rev = "ac3fcd8d77ce437749b5f5e504dee020e0d99e0e", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vless-encryption", "vmess", "snell", "hysteria2", "anytls", "ech-tls-tunnel", "boring-tls"] }
+meow-dns = { git = "https://github.com/madeye/meow-rs.git", rev = "ac3fcd8d77ce437749b5f5e504dee020e0d99e0e" }
+meow-tunnel = { git = "https://github.com/madeye/meow-rs.git", rev = "ac3fcd8d77ce437749b5f5e504dee020e0d99e0e" }
+meow-listener = { git = "https://github.com/madeye/meow-rs.git", rev = "ac3fcd8d77ce437749b5f5e504dee020e0d99e0e", default-features = false, features = ["listener-mixed"] }
+meow-api = { git = "https://github.com/madeye/meow-rs.git", rev = "ac3fcd8d77ce437749b5f5e504dee020e0d99e0e" }
 # meow-app is pulled in ONLY for its `health_check` lib helpers (url-test /
 # fallback group probing). default-features = false drops its `full` bundle;
 # protocol features (including boring-tls) come from meow-config above and
 # unify onto the shared crate instances.
-meow-app = { git = "https://github.com/madeye/meow-rs.git", rev = "7d7f8303ab8220b54fc7459860f9c5c31b1ab63d", default-features = false }
+meow-app = { git = "https://github.com/madeye/meow-rs.git", rev = "ac3fcd8d77ce437749b5f5e504dee020e0d99e0e", default-features = false }
 
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
 parking_lot = "0.12"

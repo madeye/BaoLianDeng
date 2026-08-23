@@ -26,10 +26,10 @@ macOS VPN proxy app powered by [meow-rs](https://github.com/madeye/meow-rs), a C
 │  │  Nodes   │ Editor │& Stats│ Logs      │  │
 │  └──────────┴────────┴───────┴───────────┘  │
 │  ┌───────────────────────────────────────┐  │
-│  │  VPNManager (NETunnelProviderManager) │  │
+│  │  VPNManager (NETransparentProxyManager)│  │
 │  └──────────────────┬────────────────────┘  │
 ├─────────────────────┼───────────────────────┤
-│    System Extension (TransparentProxy)      │
+│  App Extension (PlugIns/TransparentProxy)   │
 │  ┌──────────────────┴────────────────────┐  │
 │  │  NETransparentProxyProvider           │  │
 │  │    ┌──────────────────────────────┐   │  │
@@ -75,9 +75,9 @@ cp Local.xcconfig.template Local.xcconfig
 
 > **Finding your Team ID:** Apple Developer portal → Membership → Team ID (10-character string, e.g. `AB12CD34EF`).
 
-Both targets require these capabilities (already configured in entitlements):
+The app and the provider require these capabilities (already configured in entitlements):
 - **App Sandbox**
-- **Network Extensions** — Packet Tunnel Provider
+- **Network Extensions** — App Proxy Provider (transparent proxy)
 
 #### 3. Build and run
 

@@ -1,6 +1,6 @@
 # BaoLianDeng E2E Tests
 
-End-to-end tests that run BaoLianDeng in a macOS VM with SIP disabled, using a local Shadowsocks proxy to verify the full VPN tunnel works.
+End-to-end tests that run BaoLianDeng in a macOS VM, using a local Shadowsocks proxy to verify the full VPN tunnel works. The provider is an app extension, so SIP does not need to be disabled.
 
 ## Prerequisites
 
@@ -35,18 +35,7 @@ In the VM window:
 - Enable SSH: **System Settings > General > Sharing > Remote Login > ON** (allow all users)
 - Shut down from the Apple menu
 
-### 4. Disable SIP via recovery mode
-
-```bash
-tart run bld-e2e-base --recovery
-```
-
-In the recovery window:
-- **Utilities > Terminal**
-- Run `csrutil disable`, confirm with `y`
-- Run `reboot`
-
-### 5. Configure auto-login and passwordless sudo
+### 4. Configure auto-login and passwordless sudo
 
 ```bash
 tart run bld-e2e-base --vnc-experimental --no-graphics &
@@ -65,7 +54,7 @@ exit
 tart stop bld-e2e-base
 ```
 
-### 6. Approve the system extension
+### 5. Approve the network extension
 
 ```bash
 tart run bld-e2e-base
@@ -74,10 +63,9 @@ tart run bld-e2e-base
 - Copy the built app: `scp -r path/to/BaoLianDeng.app admin@$(tart ip bld-e2e-base):/Applications/`
 - Open BaoLianDeng in the VM
 - When prompted, go to **System Settings > General > Login Items & Extensions > Network Extensions** and toggle ON
-- Optionally run in Terminal: `sudo systemextensionsctl developer on`
 - Shut down the VM
 
-The base VM is now ready. All clones inherit these settings.
+The provider is `PlugIns/TransparentProxy.appex` — there is no system-extension approval dialog and `systemextensionsctl` is not involved. The base VM is now ready. All clones inherit these settings.
 
 ## Running Tests
 
@@ -98,26 +86,25 @@ This takes ~1-2 minutes (with `SKIP_BUILD`) and:
 5. Launches the app, starts the VPN tunnel
 6. Runs 5 connectivity checks:
    - SOCKS5 proxy (curl via 127.0.0.1:7890)
-   - TUN tunnel routing (curl without explicit proxy)
+   - Transparent-proxy routing (curl without explicit proxy)
    - Traffic stats (external controller API)
-   - TUN interface exists
+   - App extension is embedded (`PlugIns/TransparentProxy.appex`)
    - DNS resolution through tunnel
 7. Cleans up (stops VPN, deletes ephemeral VM clone, kills ssserver)
 
 ## Architecture
 
 ```
-Host                              VM (SIP disabled, auto-login)
+Host                              VM (auto-login)
 ────                              ───────────────────────────────
 ssserver :18388  <───────────────  BaoLianDeng.app
-                                    ├── PacketTunnelMac (system extension)
-                                    │     ├── tun2socks (smoltcp)
-                                    │     └── mihomo engine
-                                    └── TUN device (198.18.0.0/16)
-                                          └── curl http://httpbin.org/ip
+                                    └── PlugIns/TransparentProxy.appex
+                                          ├── NETransparentProxyProvider
+                                          └── mihomo engine
+                                                └── curl http://httpbin.org/ip
 ```
 
-Traffic flow: `curl → TUN → tun2socks → SOCKS5 :7890 → mihomo → SS client → host ssserver :18388 → internet`
+Traffic flow: `curl → transparent proxy → SOCKS5 → mihomo → SS client → host ssserver :18388 → internet`
 
 ## Files
 
@@ -137,11 +124,11 @@ Traffic flow: `curl → TUN → tun2socks → SOCKS5 :7890 → mihomo → SS cli
 
 **SSH timeout**: Ensure Remote Login is enabled in the VM. Boot manually with `tart run bld-e2e-base` and check System Settings > General > Sharing.
 
-**"No GUI session"**: Auto-login must be configured (steps 5 above). The VM boots headlessly with `--vnc-experimental --no-graphics` which provides a virtual display. Without auto-login, no GUI session starts and the app can't launch.
+**"No GUI session"**: Auto-login must be configured (step 4 above). The VM boots headlessly with `--vnc-experimental --no-graphics` which provides a virtual display. Without auto-login, no GUI session starts and the app can't launch.
 
-**System extension "waiting for user"**: The extension must be approved once on the base VM (step 6). The approval persists in clones.
+**Network extension "waiting for user"**: The Network Extension must be toggled on once on the base VM (step 5). The approval persists in clones.
 
-**VPN doesn't connect**: Check that SIP is disabled (`csrutil status` in the VM should show "disabled").
+**VPN doesn't connect**: Confirm **System Settings → General → Login Items & Extensions → Network Extensions** is on for BaoLianDeng, and that `BaoLianDeng.app/Contents/PlugIns/TransparentProxy.appex` exists.
 
 **ssserver not found**: Run `brew install shadowsocks-rust`.
 
@@ -152,7 +139,6 @@ sudo defaults write /Library/Preferences/SystemConfiguration/com.apple.InternetS
 
 ## Notes
 
-- SIP is disabled in the VM image via recovery mode during setup. The setting persists across reboots.
 - The VM runs with `--vnc-experimental --no-graphics` which provides a virtual display (needed for GUI session / auto-login) without opening a window on the host.
 - GitHub Actions cannot run these tests (no nested virtualization support on hosted runners).
 - The base VM image (`bld-e2e-base`) is ~30GB on disk.

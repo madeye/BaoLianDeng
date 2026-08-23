@@ -63,25 +63,10 @@ read -r
 
 tart run "$VM_BASE_NAME"
 
-# Step 5: Disable SIP via recovery mode
+# Step 5: Configure auto-login, sudo, and SSH key
+# SIP does not need to be disabled: the provider is an app extension.
 echo ""
-echo "--- Step 4: Disable SIP (recovery mode) ---"
-echo ""
-echo "  The VM will boot into recovery mode:"
-echo ""
-echo "  1. Utilities > Terminal"
-echo "  2. Run: csrutil disable"
-echo "  3. Confirm with 'y' if prompted"
-echo "  4. Run: reboot"
-echo ""
-echo "Press Enter to boot into recovery mode..."
-read -r
-
-tart run "$VM_BASE_NAME" --recovery
-
-# Step 6: Configure auto-login, sudo, and SSH key
-echo ""
-echo "--- Step 5: Configuring auto-login and SSH ---"
+echo "--- Step 4: Configuring auto-login and SSH ---"
 echo "Booting VM headlessly..."
 tart run "$VM_BASE_NAME" --vnc-experimental --no-graphics &
 SETUP_PID=$!
@@ -134,17 +119,6 @@ ssh -o StrictHostKeyChecking=no admin@"$VM_IP" \
     'sudo sh -c "printf \"\\x1c\\xed\\x3f\\x4a\\xbc\\xbc\\x43\\xb4\\x59\\x33\\xb1\" > /etc/kcpassword && chmod 600 /etc/kcpassword"'
 echo "Auto-login configured"
 
-# Enable system extension developer mode (requires SIP disabled)
-echo "Enabling system extension developer mode..."
-ssh -o StrictHostKeyChecking=no admin@"$VM_IP" \
-    'sudo python3 -c "
-import plistlib
-db = {\"version\": 1, \"developerMode\": True, \"extensions\": [], \"extensionPolicies\": []}
-with open(\"/Library/SystemExtensions/db.plist\", \"wb\") as f:
-    plistlib.dump(db, f, fmt=plistlib.FMT_BINARY)
-print(\"Developer mode enabled\")
-"'
-
 # Stop VM
 tart stop "$VM_BASE_NAME" 2>/dev/null || true
 wait $SETUP_PID 2>/dev/null || true
@@ -172,11 +146,15 @@ if [ -z "$APP_BUILD_PATH" ]; then
     exit 1
 fi
 
-# Verify signing (system extensions require proper code signing)
+# Verify signing (the Network Extension app extension requires a team ID)
 TEAM_ID=$(codesign -d --verbose=2 "$APP_BUILD_PATH" 2>&1 | grep TeamIdentifier | awk -F= '{print $2}')
 if [ -z "$TEAM_ID" ] || [ "$TEAM_ID" = "not set" ]; then
-    echo "ERROR: App is not properly signed. System extensions require code signing."
+    echo "ERROR: App is not properly signed. The Network Extension requires code signing."
     echo "Make sure Local.xcconfig has DEVELOPMENT_TEAM set."
+    exit 1
+fi
+if [ ! -d "$APP_BUILD_PATH/Contents/PlugIns/TransparentProxy.appex" ]; then
+    echo "ERROR: TransparentProxy.appex missing from built app"
     exit 1
 fi
 echo "Built app: $APP_BUILD_PATH (Team: $TEAM_ID)"
@@ -214,25 +192,24 @@ vm_install_app "$VM_IP" "$APP_BUILD_PATH"
 tart stop "$VM_BASE_NAME" 2>/dev/null || true
 wait $SETUP_PID 2>/dev/null || true
 
-# Step 8: Approve system extension + network extension in GUI
+# Step 8: Approve the network extension in GUI
 echo ""
-echo "--- Step 8: Approve system extension + network extension ---"
+echo "--- Step 7: Approve the network extension ---"
 echo ""
 echo "  The VM will open with a GUI. You need to:"
 echo ""
 echo "  1. BaoLianDeng.app is already installed in /Applications"
-echo "  2. Open it — it will request system extension activation"
-echo "  3. A notification will appear asking to allow the extension"
-echo "  4. Open System Settings > General > Login Items & Extensions"
-echo "  5. Under 'Network Extensions', toggle ON BaoLianDeng"
-echo "  6. You may also need to click 'Allow' in a separate dialog"
-echo "  7. Verify: open Terminal and run: scutil --nc list"
+echo "  2. Open it — macOS will ask to allow the Network Extension"
+echo "  3. Open System Settings > General > Login Items & Extensions"
+echo "  4. Under 'Network Extensions', toggle ON BaoLianDeng"
+echo "  5. You may also need to click 'Allow' in a separate dialog"
+echo "  6. Verify: open Terminal and run: scutil --nc list"
 echo "     It should show 'BaoLianDeng' in the list"
-echo "  8. Shut down the VM from the Apple menu"
+echo "  7. Shut down the VM from the Apple menu"
 echo ""
-echo "  NOTE: Both the system extension AND the network extension"
-echo "  (transparent proxy filter) must be approved. These are"
-echo "  separate approvals in System Settings."
+echo "  NOTE: The provider is PlugIns/TransparentProxy.appex. There is"
+echo "  no system-extension approval dialog and systemextensionsctl is"
+echo "  not involved."
 echo ""
 echo "Press Enter to boot the VM..."
 read -r
