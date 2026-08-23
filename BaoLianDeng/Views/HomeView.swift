@@ -609,7 +609,9 @@ struct HomeView: View {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
-        request.setValue("ClashMetaForAndroid/2.11.1.Meta", forHTTPHeaderField: "User-Agent")
+        // Mihomo's default global-ua (`clash.meta/<version>`). Providers key off
+        // this token to return Clash Meta YAML instead of a generic node list.
+        request.setValue("clash.meta", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
         AppLogger.log(AppLogger.network, category: "network", "fetchSubscription host=\(url.host ?? "?") status=\((response as? HTTPURLResponse)?.statusCode ?? -1) bytes=\(data.count)")
         return try Self.parseFetchedSubscription(data: data, response: response)
