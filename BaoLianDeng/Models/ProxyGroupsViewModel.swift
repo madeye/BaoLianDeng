@@ -145,22 +145,11 @@ final class ProxyGroupsViewModel {
     /// `replaySelectionsToEngine()` never pins them. Groups absent from the
     /// loaded config (e.g. another subscription's) are left untouched.
     ///
-    /// Known limitation (issue #75 item 6): `selections` is keyed only by
-    /// group *name*, with no per-subscription/config scoping. The
-    /// `group.all.contains(current)` check below guards against replaying a
-    /// selection that no longer exists in the group, but it cannot detect
-    /// cross-subscription contamination: if two different subscriptions both
-    /// define a same-named `Selector` group and happen to share a node name,
-    /// a selection saved under one subscription will pass this containment
-    /// check and be silently replayed into the other subscription's
-    /// same-named group, even though the user never chose that node there.
-    /// TODO(#75): fix properly by keying `selections` (and the persisted
-    /// `proxyGroupSelections` blob) by a composite key of subscription/config
-    /// ID + group name instead of group name alone, so selections from one
-    /// subscription can never leak into a same-named group in another. This
-    /// requires new storage (tracking the active subscription ID alongside
-    /// selections) and touches `saveSelections`/`loadSelections`/
-    /// `replaySelectionsToEngine` as well as this merge function.
+    /// `selections` holds only the active subscription's choices — persistence
+    /// is scoped by subscription ID (`ProxyGroupSelections`), so a selection
+    /// made under one subscription can never leak into a same-named group in
+    /// another. Call `reloadSelectionsForActiveSubscription()` after switching
+    /// subscriptions to swap the in-memory map to the new scope.
     static func mergedSelections(
         _ existing: [String: String],
         groups: [MihomoProxyGroup]
@@ -182,19 +171,24 @@ final class ProxyGroupsViewModel {
     // MARK: - Persistence
 
     private func saveSelections() {
-        // Save selections to UserDefaults for replay on next VPN connect
-        if let data = try? JSONEncoder().encode(selections) {
-            AppConstants.sharedDefaults.set(data, forKey: "proxyGroupSelections")
-        }
+        // Persist under the active subscription's scope for replay on the next
+        // VPN connect.
+        ProxyGroupSelections.save(selections)
     }
 
     func loadSelections() {
-        if let data = AppConstants.sharedDefaults.data(forKey: "proxyGroupSelections"),
-           let saved = try? JSONDecoder().decode([String: String].self, from: data) {
-            for (group, name) in saved {
-                selections[group] = name
-            }
+        for (group, name) in ProxyGroupSelections.load() {
+            selections[group] = name
         }
+    }
+
+    /// Swap the in-memory selections to the newly active subscription's scope.
+    /// Unlike `loadSelections()` this discards the previous subscription's
+    /// choices instead of merging them, so a group name shared by both
+    /// subscriptions shows the value the user picked *here*.
+    @MainActor
+    func reloadSelectionsForActiveSubscription() {
+        selections = ProxyGroupSelections.load()
     }
 
     /// Replay saved selections to the engine after VPN connects.

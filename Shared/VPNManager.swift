@@ -324,7 +324,7 @@ final class VPNManager: NSObject, ObservableObject {
             }
             if connection.status == .connected {
                 self?.extensionEnabled = true
-                self?.selectSavedProxyNode()
+                self?.replaySavedGroupSelections()
             }
             if connection.status == .disconnected {
                 VPNManager.clearTunnelLog()
@@ -498,7 +498,7 @@ final class VPNManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self?.isProcessing = false
                     self?.status = .connected
-                    self?.selectSavedProxyNode()
+                    self?.replaySavedGroupSelections()
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -598,30 +598,36 @@ final class VPNManager: NSObject, ObservableObject {
         return true
     }
 
-    /// Select a specific proxy node via Mihomo's REST API.
-    func selectNode(_ nodeName: String) {
-        selectNodeViaRestAPI(nodeName)
-    }
-
-    /// Select the user's saved proxy node via Mihomo's REST API.
-    private func selectSavedProxyNode() {
-        let defaults = AppConstants.sharedDefaults
-        guard let nodeName = defaults.string(forKey: "selectedNode"), !nodeName.isEmpty else {
-            dbg("selectSavedProxyNode: no saved node")
+    /// Replay the user's saved per-group selections to the engine via the REST
+    /// API. The engine resets every `Selector` group to its config default on
+    /// each start, so without this the user's choices are lost on reconnect.
+    ///
+    /// Only groups the user actually chose in are touched, and only with a
+    /// value the group still lists — selections are scoped per subscription
+    /// (`ProxyGroupSelections`), so nothing from another subscription can be
+    /// pushed here. This replaces the old `selectedNode` path, which pushed a
+    /// single global node name into *every* non-bypass Selector group.
+    private func replaySavedGroupSelections() {
+        let saved = ProxyGroupSelections.load()
+        guard !saved.isEmpty else {
+            dbg("replayGroupSelections: nothing saved for this subscription")
             return
         }
         // Delay to let Mihomo's external controller finish initializing
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.selectNodeViaRestAPI(nodeName, retriesLeft: 5)
+            self?.replayGroupSelectionsViaRestAPI(saved, retriesLeft: 5)
         }
     }
 
-    private func selectNodeViaRestAPI(_ nodeName: String, retriesLeft: Int = 0) {
+    private func replayGroupSelectionsViaRestAPI(
+        _ saved: [String: String],
+        retriesLeft: Int = 0
+    ) {
         guard let url = AppConstants.externalControllerURL(pathSegments: ["proxies"]) else {
             // Controller addr not yet published by the extension; retry.
             if retriesLeft > 0 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                    self?.selectNodeViaRestAPI(nodeName, retriesLeft: retriesLeft - 1)
+                    self?.replayGroupSelectionsViaRestAPI(saved, retriesLeft: retriesLeft - 1)
                 }
             }
             return
@@ -630,57 +636,26 @@ final class VPNManager: NSObject, ObservableObject {
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let proxies = json["proxies"] as? [String: Any] else {
-                self?.dbg("selectNode: failed to fetch proxy list: \(error?.localizedDescription ?? "unknown") (retries=\(retriesLeft))")
+                self?.dbg("replayGroupSelections: failed to fetch proxy list: \(error?.localizedDescription ?? "unknown") (retries=\(retriesLeft))")
                 if retriesLeft > 0 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        self?.selectNodeViaRestAPI(nodeName, retriesLeft: retriesLeft - 1)
+                        self?.replayGroupSelectionsViaRestAPI(saved, retriesLeft: retriesLeft - 1)
                     }
                 }
                 return
             }
-            // Build a name → members map across every group-like type that
-            // exposes an `all` array. We need this to recursively resolve
-            // bypass groups whose first member is itself another group.
-            let groupTypes: Set<String> = ["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]
-            var groupMembers: [String: [String]] = [:]
-            for (name, value) in proxies {
-                guard let info = value as? [String: Any],
-                      let type = info["type"] as? String,
-                      groupTypes.contains(type),
-                      let all = info["all"] as? [String] else { continue }
-                groupMembers[name] = all
-            }
-            // For every non-bypass Selector group, decide what to push:
-            //   - if the group lists the user's selected node → push the node
-            //   - else if the group contains a Direct/REJECT member → push
-            //     that bypass member (matches applySelectedNode's config-time
-            //     rewrite: subscription authors list Direct in a group to
-            //     indicate it should bypass the proxy).
-            //   - else → leave alone
+            // Push a saved choice only into a Selector group that still exists
+            // and still lists it. Engine-managed groups (URLTest, Fallback, …)
+            // pick their own member and are never pinned.
             var targets: [(group: String, selection: String)] = []
-            for (name, value) in proxies {
-                guard let info = value as? [String: Any],
+            for (group, selection) in saved {
+                guard let info = proxies[group] as? [String: Any],
                       (info["type"] as? String) == "Selector",
                       let all = info["all"] as? [String],
-                      let first = all.first else { continue }
-                // GLOBAL is the engine's auto-created all-proxies selector; its
-                // sorted member list puts DIRECT first, which the bypass
-                // heuristic below would misread. Always push the node so
-                // global mode routes through it.
-                if name == "GLOBAL" {
-                    if all.contains(nodeName) {
-                        targets.append((name, nodeName))
-                    }
-                    continue
-                }
-                guard !isBypassGroup(firstMember: first, groupMembers: groupMembers) else { continue }
-                if all.contains(nodeName) {
-                    targets.append((name, nodeName))
-                } else if let bypass = firstBypassMember(in: all, groupMembers: groupMembers) {
-                    targets.append((name, bypass))
-                }
+                      all.contains(selection) else { continue }
+                targets.append((group, selection))
             }
-            self?.dbg("selectNode: \(nodeName) -> \(targets.map { "\($0.group)=\($0.selection)" })")
+            self?.dbg("replayGroupSelections: \(targets.map { "\($0.group)=\($0.selection)" })")
             for (groupName, selection) in targets {
                 guard let putURL = AppConstants.externalControllerURL(pathSegments: ["proxies", groupName]),
                       let body = try? JSONSerialization.data(withJSONObject: ["name": selection]) else { continue }
@@ -689,9 +664,9 @@ final class VPNManager: NSObject, ObservableObject {
                 request.httpBody = body
                 URLSession.shared.dataTask(with: request) { [weak self] _, response, putError in
                     if let putError = putError {
-                        self?.dbg("selectNode \(groupName): \(putError.localizedDescription)")
+                        self?.dbg("replayGroupSelections \(groupName): \(putError.localizedDescription)")
                     } else if let http = response as? HTTPURLResponse {
-                        self?.dbg("selectNode \(groupName): \(http.statusCode)")
+                        self?.dbg("replayGroupSelections \(groupName): \(http.statusCode)")
                     }
                 }.resume()
             }
@@ -700,10 +675,11 @@ final class VPNManager: NSObject, ObservableObject {
 
     /// Point the engine's GLOBAL selector at a real target so global mode
     /// routes through the proxy instead of GLOBAL's default (DIRECT, the
-    /// first entry of its sorted member list). Prefers the saved node, but
-    /// that name can be stale after a subscription refresh renames nodes —
-    /// then falls back to the largest non-bypass selector group (the
-    /// subscription's node-choice group), which tracks future node changes.
+    /// first entry of its sorted member list). Prefers the user's own GLOBAL
+    /// selection for this subscription, but that name can be stale after a
+    /// subscription refresh renames nodes — then falls back to the largest
+    /// non-bypass selector group (the subscription's node-choice group),
+    /// which tracks future node changes.
     func syncGlobalSelector() {
         guard let url = AppConstants.externalControllerURL(pathSegments: ["proxies"]) else { return }
         URLSession.shared.dataTask(with: AppConstants.authorizedControllerRequest(url: url)) { [weak self] data, _, _ in
@@ -724,7 +700,7 @@ final class VPNManager: NSObject, ObservableObject {
             }
 
             var target: String?
-            let saved = AppConstants.sharedDefaults.string(forKey: "selectedNode")
+            let saved = ProxyGroupSelections.load()["GLOBAL"]
             if let saved = saved, !saved.isEmpty, globalMembers.contains(saved) {
                 target = saved
             } else {
@@ -799,14 +775,13 @@ final class VPNManager: NSObject, ObservableObject {
             }
         }
 
-        // Apply selected proxy node: save to disk, rewrite groups, read back
-        if let selectedNode = defaults.string(forKey: "selectedNode"), !selectedNode.isEmpty {
-            try? ConfigManager.shared.saveConfig(yaml)
-            ConfigManager.shared.applySelectedNode()
-            if let updated = try? ConfigManager.shared.loadConfig() {
-                yaml = updated
-            }
-        }
+        // No group rewriting here. The engine starts each Selector group on
+        // the config's own first member and `replaySavedGroupSelections()`
+        // pushes the user's per-group choices once the controller is up. The
+        // old `applySelectedNode()` rewrite was both wrong (one global node
+        // forced into every group) and lossy: it round-tripped proxy-groups
+        // through the editable parser, which drops `use:`, `filter:`, `lazy:`
+        // and friends, emptying provider-backed groups.
 
         // Apply user settings
         if let logLevel = defaults.string(forKey: "logLevel") {

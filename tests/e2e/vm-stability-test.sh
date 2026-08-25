@@ -29,7 +29,10 @@ echo "--- Setting up VPN ---"
 mkdir -p "$CONFIG_DIR"
 sed "s/__HOST_IP__/$HOST_IP/g" /tmp/e2e-test-config.yaml > "$CONFIG_DIR/config.yaml"
 defaults write "$BUNDLE_ID" proxyMode -string "global"
-defaults write "$BUNDLE_ID" selectedNode -string "e2e-trojan"
+# Per-group selections are scoped by subscription; the E2E config is
+# hand-written with no subscription selected, hence the __none__ scope.
+defaults write "$BUNDLE_ID" proxyGroupSelectionsBySubscription \
+    -dict-add "__none__" '{ "GLOBAL" = "e2e-trojan"; }'
 
 open "$APP_PATH" 2>&1 || true
 sleep 5

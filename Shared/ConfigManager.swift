@@ -209,6 +209,22 @@ final class ConfigManager {
         try? saveConfig(config)
     }
 
+    /// True when `name` is something this config can actually select: a
+    /// built-in outbound, a declared proxy, or a proxy group. Used to reject
+    /// selections carried over from another subscription before they reach
+    /// the engine, which silently drops unknown members instead of erroring.
+    static func configDefinesProxyName(
+        _ name: String,
+        in yaml: String,
+        groups: [EditableProxyGroup]
+    ) -> Bool {
+        if name == "DIRECT" || name == "PASS" || name.hasPrefix("REJECT") { return true }
+        if groups.contains(where: { $0.name == name }) { return true }
+        guard let dict = (try? Yams.load(yaml: yaml)) as? [String: Any],
+              let proxies = dict["proxies"] as? [[String: Any]] else { return false }
+        return proxies.contains { ($0["name"] as? String) == name }
+    }
+
     /// Return all proxy group names with type "select" from config.yaml.
     func selectProxyGroupNames() -> [String] {
         guard let yaml = try? loadConfig() else { return [] }
@@ -217,62 +233,10 @@ final class ConfigManager {
             .map(\.name)
     }
 
-    /// Update every select-type proxy group to put the user's selected node first
-    /// — except groups whose existing default (first listed proxy) is a bypass
-    /// member (`DIRECT`, `REJECT`, or a nested group that resolves to those).
-    /// Those are treated as bypass / blocklist groups (e.g. CN-direct categories
-    /// or ad-blockers) and left untouched. The selected node is only injected
-    /// into groups that already list it as a member, so we never invent
-    /// membership the user didn't grant.
-    func applySelectedNode() {
-        let defaults = AppConstants.sharedDefaults
-        guard let selectedNode = defaults.string(forKey: "selectedNode"), !selectedNode.isEmpty else {
-            return
-        }
-        guard var yaml = try? loadConfig() else { return }
-
-        var groups = parseProxyGroups(from: yaml)
-        let groupMembers = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.proxies) })
-        var changed = false
-        for i in groups.indices where groups[i].type == "select" {
-            var members = groups[i].proxies
-            // Skip bypass groups: the first listed proxy resolves to DIRECT or
-            // REJECT (directly or via a nested group), meaning the group is
-            // configured to bypass the proxy by default.
-            guard let first = members.first else { continue }
-            if isBypassGroup(firstMember: first, groupMembers: groupMembers) { continue }
-
-            let promoted: String
-            if members.contains(selectedNode) {
-                // Explicit user choice wins: move the selected node to index 0.
-                promoted = selectedNode
-            } else if let bypass = firstBypassMember(in: members, groupMembers: groupMembers) {
-                // Group exposes a Direct/REJECT option but the user's selected
-                // node isn't a member. The subscription author listed the
-                // bypass entry for a reason (CN-direct category, ad-block, …),
-                // so prefer it over mihomo's "first listed proxy wins" default.
-                promoted = bypass
-            } else {
-                continue
-            }
-
-            // Move the promoted member to index 0 so SelectorGroup defaults to
-            // it, but keep all other members so the user can still switch at
-            // runtime.
-            members.removeAll { $0 == promoted }
-            members.insert(promoted, at: 0)
-            groups[i].proxies = members
-            changed = true
-        }
-        guard changed else { return }
-
-        yaml = updateProxyGroups(groups, in: yaml)
-        try? saveConfig(yaml)
-    }
-
-    /// Add or remove a GLOBAL proxy group with the selected node.
+    /// Add or remove a GLOBAL proxy group with the user's GLOBAL selection.
     /// Mihomo's `mode: global` routes all traffic through the built-in GLOBAL selector,
-    /// so we need to define it with the user's selected proxy node.
+    /// so we need to define it with a real target — the engine's auto-created
+    /// GLOBAL sorts DIRECT first, which would send everything direct.
     func updateGlobalProxyGroup(_ yaml: String, enabled: Bool) -> String {
         // First, strip any existing GLOBAL group
         var lines = yaml.components(separatedBy: "\n")
@@ -303,28 +267,29 @@ final class ConfigManager {
 
         guard enabled else { return lines.joined(separator: "\n") }
 
-        // Read selected node from shared UserDefaults
-        let defaults = AppConstants.sharedDefaults
-        let selectedNode = defaults.string(forKey: "selectedNode")
-
         // Find proxy-groups: line and insert GLOBAL group right after it
         guard let pgIdx = lines.firstIndex(where: {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("proxy-groups:")
         }) else { return lines.joined(separator: "\n") }
 
-        // The saved node name can be stale after a subscription refresh renames
-        // nodes (the engine's lenient parser silently drops missing members),
-        // so list fallbacks after it: the MATCH rule's target group — global
-        // mode then routes everything the way rule mode routes unmatched
-        // traffic, including the user's persisted group selections — then the
-        // first non-bypass select group, then DIRECT as a last resort.
-        var members: [String] = []
-        if let node = selectedNode, !node.isEmpty {
-            members.append(node)
-        }
         let stripped = lines.joined(separator: "\n")
         let groups = parseProxyGroups(from: stripped)
         let groupMembers = Dictionary(groups.map { ($0.name, $0.proxies) }) { first, _ in first }
+
+        // Head with whatever the user last picked inside GLOBAL itself, but
+        // only when that name still exists in this config — a selection saved
+        // under a different subscription (or a node the subscription has since
+        // renamed) must not be listed, or global mode silently routes through
+        // a member the user never chose here. Fallbacks follow: the MATCH
+        // rule's target group — global mode then routes everything the way
+        // rule mode routes unmatched traffic, including the user's persisted
+        // group selections — then the first non-bypass select group, then
+        // DIRECT as a last resort.
+        var members: [String] = []
+        if let saved = ProxyGroupSelections.load()["GLOBAL"], !saved.isEmpty,
+           Self.configDefinesProxyName(saved, in: stripped, groups: groups) {
+            members.append(saved)
+        }
         if let matchTarget = parseRules(from: stripped).last(where: { $0.type == "MATCH" })?.target,
            groups.contains(where: { $0.name == matchTarget }),
            !members.contains(matchTarget) {
@@ -1595,24 +1560,6 @@ func isFirstDefaultBypass(
     if !seen.insert(name).inserted { return false }              // cycle guard
     guard let first = members.first else { return false }
     return isFirstDefaultBypass(first, groupMembers: groupMembers, seen: &seen)
-}
-
-/// Return the first member of `members` whose mihomo runtime default
-/// resolves to DIRECT/REJECT, or nil if none. Used to promote a
-/// direct-like option when the user's selected node is not a member of
-/// this group — matches the subscription author's intent that "this group
-/// exposes a Direct option because it's meant to bypass".
-func firstBypassMember(
-    in members: [String],
-    groupMembers: [String: [String]]
-) -> String? {
-    for member in members {
-        var seen: Set<String> = []
-        if isFirstDefaultBypass(member, groupMembers: groupMembers, seen: &seen) {
-            return member
-        }
-    }
-    return nil
 }
 
 enum ConfigError: LocalizedError {
