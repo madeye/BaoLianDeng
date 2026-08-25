@@ -32,7 +32,10 @@ echo "Config written"
 # --- Step 2: Set UserDefaults ---
 echo "--- Step 2: Set UserDefaults ---"
 defaults write "$BUNDLE_ID" proxyMode -string "global"
-defaults write "$BUNDLE_ID" selectedNode -string "e2e-trojan"
+# Per-group selections are scoped by subscription; the E2E config is
+# hand-written with no subscription selected, hence the __none__ scope.
+defaults write "$BUNDLE_ID" proxyGroupSelectionsBySubscription \
+    -dict-add "__none__" '{ "GLOBAL" = "e2e-trojan"; }'
 echo "Proxy mode: global, node: e2e-trojan"
 
 # --- Step 3: Launch app ---

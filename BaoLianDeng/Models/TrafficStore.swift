@@ -277,9 +277,9 @@ final class TrafficStore: ObservableObject {
         // DIRECT/REJECT. For real outbounds that's a literal match; for
         // selector groups we walk the cached config-time group map via
         // isFirstDefaultBypass — which recursively follows each group's
-        // first listed member (the runtime default after applySelectedNode
-        // rewrites the config to put the chosen member at index 0). Empty
-        // chains are treated as direct defensively.
+        // first listed member (the engine's runtime default before the user's
+        // saved selections are replayed). Empty chains are treated as direct
+        // defensively.
         if chains.isEmpty { return true }
         for element in chains {
             var seen: Set<String> = []

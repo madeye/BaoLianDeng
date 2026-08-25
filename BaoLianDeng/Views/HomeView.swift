@@ -338,6 +338,10 @@ struct HomeView: View {
         selectedSubscriptionID = sub.id
         AppConstants.sharedDefaults
             .set(sub.id.uuidString, forKey: "selectedSubscriptionID")
+        // Selections are stored per subscription; swap to the new scope before
+        // anything reads or replays them, so the previous subscription's picks
+        // can't be pushed into same-named groups here.
+        proxyGroupsVM.reloadSelectionsForActiveSubscription()
         if let raw = sub.rawContent {
             Task {
                 _ = await Task.detached {
@@ -512,10 +516,15 @@ struct HomeView: View {
     }
 
     private func deleteSubscription(at offsets: IndexSet) {
-        for i in offsets where subscriptions[i].id == selectedSubscriptionID {
+        for i in offsets {
+            // Forget this subscription's per-group selections, so re-adding it
+            // later starts from the config's own defaults.
+            ProxyGroupSelections.removeScope(subscriptions[i].id.uuidString)
+            guard subscriptions[i].id == selectedSubscriptionID else { continue }
             selectedSubscriptionID = nil
             AppConstants.sharedDefaults
                 .removeObject(forKey: "selectedSubscriptionID")
+            proxyGroupsVM.reloadSelectionsForActiveSubscription()
         }
         subscriptions.remove(atOffsets: offsets)
         saveSubscriptions()
