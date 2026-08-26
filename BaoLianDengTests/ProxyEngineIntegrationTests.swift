@@ -89,16 +89,23 @@ struct ProxyEngineIntegrationTests {
         let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal)
         defer { ProxyEngineHelper.stop(context: ctx) }
 
-        // curl through the SOCKS5 proxy to a reliable endpoint
+        let target = try #require(LocalHTTPServer(), "could not bind loopback HTTP target")
+        defer { target.stop() }
+
+        // `--socks5` (not `--socks5-hostname`) makes curl resolve the target
+        // itself, so the engine receives a raw IPv4 literal over SOCKS5 —
+        // exactly the shape the transparent proxy hands it for every TCP
+        // flow. The target is local so the assertion measures the proxy
+        // chain, not whether this network can reach some public host.
         let result = ProxyEngineHelper.curlThroughProxy(
-            url: "http://www.gstatic.com/generate_204",
+            url: "http://127.0.0.1:\(target.port)/generate_204",
             socksPort: ctx.socksPort,
             timeout: 10
         )
 
         // The HTTP status code is written to stdout via --write-out
         #expect(result.exitCode == 0, "curl should exit successfully")
-        #expect(result.output == "204", "Should receive HTTP 204 from gstatic")
+        #expect(result.output == "204", "Should receive HTTP 204 from the loopback target")
     }
 
     @Test("HTTP request through HTTP proxy (mixed listener)")
@@ -108,6 +115,12 @@ struct ProxyEngineIntegrationTests {
 
         // The loopback listener is mixed SOCKS5+HTTP; local proxy mode
         // points apps at its HTTP side, so exercise that here.
+        //
+        // This one deliberately keeps a public hostname: an HTTP proxy is
+        // handed the name, not an address, so this is the only test covering
+        // the domain path — rule matching on a hostname and resolution
+        // through the engine's own `dns:` section. Pointing it at the
+        // loopback target would turn it into another IP-literal test.
         let result = ProxyEngineHelper.curlThroughHTTPProxy(
             url: "http://www.gstatic.com/generate_204",
             proxyPort: ctx.socksPort,
@@ -123,9 +136,14 @@ struct ProxyEngineIntegrationTests {
         let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal)
         defer { ProxyEngineHelper.stop(context: ctx) }
 
-        // Generate some traffic first
+        let target = try #require(LocalHTTPServer(), "could not bind loopback HTTP target")
+        defer { target.stop() }
+
+        // Generate some traffic first — against the local target, so a
+        // network that cannot reach the public internet still populates
+        // /connections instead of burning the full curl timeout.
         _ = ProxyEngineHelper.curlThroughProxy(
-            url: "http://www.gstatic.com/generate_204",
+            url: "http://127.0.0.1:\(target.port)/generate_204",
             socksPort: ctx.socksPort,
             timeout: 10
         )
