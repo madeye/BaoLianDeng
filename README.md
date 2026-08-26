@@ -1,13 +1,13 @@
 # BaoLianDeng
 
-macOS VPN proxy app powered by [meow-rs](https://github.com/madeye/meow-rs), a Clash/mihomo-compatible proxy kernel written in Rust.
+macOS VPN proxy app powered by [meow-rs](https://github.com/meow-rs/meow-rs), a Clash/mihomo-compatible proxy kernel written in Rust.
 
 **[App Store](https://apps.apple.com/app/baoliandeng/id6779101876)** · **[TestFlight Beta](https://testflight.apple.com/join/VpX3tHnS)** · **[Website](https://madeye.github.io/BaoLianDeng/)**
 
 ## Features
 
 - **Transparent Proxy** — Built on `NETransparentProxyProvider` for socket-level flow interception, faster than traditional TUN-based solutions
-- **meow-rs Engine** — Clash/mihomo-compatible proxy kernel written in Rust ([madeye/meow-rs](https://github.com/madeye/meow-rs)), compiled as a native xcframework
+- **meow-rs Engine** — Clash/mihomo-compatible proxy kernel written in Rust ([meow-rs/meow-rs](https://github.com/meow-rs/meow-rs)), compiled as a native xcframework
 - **Per-App Proxy** — Choose which apps go through the proxy (allowlist) or bypass it (blocklist)
 - **Subscription Management** — Add, refresh, and switch between proxy subscriptions (Clash YAML and base64 formats)
 - **Smart Proxy Routing** — Browse nodes with latency indicators, switch proxy groups, rule/global/direct modes
@@ -62,7 +62,7 @@ macOS VPN proxy app powered by [meow-rs](https://github.com/madeye/meow-rs), a C
 make framework    # macOS universal (arm64 + x86_64)
 ```
 
-This builds the Rust FFI bridge under `Rust/meow-ffi/` (a staticlib around the [meow-rs](https://github.com/madeye/meow-rs) engine) into `Framework/MihomoCore.xcframework`.
+This builds the Rust FFI bridge under `Rust/meow-ffi/` (a staticlib around the [meow-rs](https://github.com/meow-rs/meow-rs) engine) into `Framework/MihomoCore.xcframework`.
 
 #### 2. Configure signing
 
