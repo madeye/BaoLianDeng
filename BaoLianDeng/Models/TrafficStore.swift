@@ -180,8 +180,16 @@ final class TrafficStore: ObservableObject {
         guard let url = AppConstants.externalControllerURL(pathSegments: ["connections"]) else { return }
         fetchGeneration += 1
         let gen = fetchGeneration
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+        let request = AppConstants.authorizedControllerRequest(url: url)
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let data = data, error == nil else { return }
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                AppLogger.log(
+                    AppLogger.vpn, category: "traffic",
+                    "Controller /connections returned HTTP \(http.statusCode); counters stay stale"
+                )
+                return
+            }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let connections = json["connections"] as? [[String: Any]] else {
                 return
