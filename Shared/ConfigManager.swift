@@ -1004,21 +1004,31 @@ final class ConfigManager {
         // fake-ip-range). Nameservers, fallback, and nameserver-policy stay.
         forceManagedDNS(&result, engineMode: engineMode)
 
-        // Default rules target `PROXY`. A proxies-only subscription has
-        // no such group — insert one that defaults to DIRECT so traffic
-        // still flows instead of hitting a missing name.
+        // The app's own default rules target `PROXY`. When those rules are
+        // in play and no such group exists, insert one so traffic still
+        // flows instead of hitting a missing name.
         ensureProxyGroupFallback(&result)
 
         return result
     }
 
     /// Insert a `PROXY` select group defaulting to DIRECT when the merged
-    /// config does not already define one. Existing groups are left intact
-    /// (prepended, not rewritten) so subscription fields like `filter` /
-    /// `icon` survive. Leaf proxy names are listed after DIRECT so the
-    /// user can still pick a node later.
+    /// config resolves that name but does not define it. Existing groups are
+    /// left intact (prepended, not rewritten) so subscription fields like
+    /// `filter` / `icon` survive. Leaf proxy names are listed after DIRECT so
+    /// the user can still pick a node later.
+    ///
+    /// The name check alone is not enough to decide whether to inject. A
+    /// subscription that ships its own rules and primary group — commonly
+    /// named `Proxies`, differing from `PROXY` only in case and plural — has
+    /// no dangling reference to repair, so injecting anyway produced a decoy
+    /// group that no rule ever routes through. Worse, `ProxyGroupsViewModel`
+    /// sorts groups by name and `"PROXY" < "Proxies"`, so the decoy rendered
+    /// directly above the real one: picking a node in it silently changed
+    /// nothing while the live group stayed on its default first member.
     static func ensureProxyGroupFallback(_ config: inout String) {
         if hasNamedProxyGroup(config, name: "PROXY") { return }
+        guard referencesProxyName(config, name: "PROXY") else { return }
 
         var members = ["DIRECT"]
         if let dict = (try? Yams.load(yaml: config)) as? [String: Any],
@@ -1063,6 +1073,17 @@ final class ConfigManager {
 
     private static func hasNamedProxyGroup(_ yaml: String, name: String) -> Bool {
         ConfigManager.shared.parseProxyGroups(from: yaml).contains { $0.name == name }
+    }
+
+    /// Whether anything in the merged config resolves `name` as a proxy: a
+    /// rule target, or a member of another proxy group. Either one dangles if
+    /// the group is missing, so either one warrants the fallback.
+    private static func referencesProxyName(_ yaml: String, name: String) -> Bool {
+        let manager = ConfigManager.shared
+        if manager.parseRules(from: yaml).contains(where: { $0.target == name }) {
+            return true
+        }
+        return manager.parseProxyGroups(from: yaml).contains { $0.proxies.contains(name) }
     }
 
     /// Set interval to 0 in provider sections so Mihomo won't auto-refresh subscription URLs.

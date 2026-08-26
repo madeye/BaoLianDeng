@@ -321,17 +321,106 @@ struct MergeSubscriptionTests {
             proxies:
               - node
         rules:
-          - MATCH,Proxies
+          - DOMAIN-SUFFIX,example.com,Proxies
+          - MATCH,PROXY
         """
         let merged = ConfigManager.mergeSubscription(
             sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
         )
         #expect(merged.contains("icon: https://example.com/icon.png"))
-        #expect(merged.contains("MATCH,Proxies"))
+        #expect(merged.contains("example.com,Proxies"))
         let groups = ConfigManager.shared.parseProxyGroups(from: merged)
         #expect(groups.contains { $0.name == "Proxies" })
         let proxy = groups.first { $0.name == "PROXY" }
         #expect(proxy?.proxies.first == "DIRECT")
+    }
+
+    @Test("Subscription shipping its own rules and groups gets no decoy PROXY")
+    func noPROXYInjectedWhenNothingReferencesIt() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Proxies
+            type: select
+            proxies:
+              - node
+        rules:
+          - DOMAIN-SUFFIX,example.com,Proxies
+          - GEOIP,CN,DIRECT
+          - MATCH,Proxies
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let groups = ConfigManager.shared.parseProxyGroups(from: merged)
+        #expect(groups.contains { $0.name == "Proxies" })
+        #expect(!groups.contains { $0.name == "PROXY" })
+    }
+
+    @Test("A rule target of PROXY still triggers the fallback")
+    func ruleTargetTriggersFallback() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Proxies
+            type: select
+            proxies:
+              - node
+        rules:
+          - IP-CIDR,91.108.0.0/16,PROXY,no-resolve
+          - MATCH,Proxies
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let groups = ConfigManager.shared.parseProxyGroups(from: merged)
+        #expect(groups.first { $0.name == "PROXY" }?.proxies.first == "DIRECT")
+    }
+
+    @Test("A group listing PROXY as a member still triggers the fallback")
+    func groupMemberTriggersFallback() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: Proxies
+            type: select
+            proxies:
+              - PROXY
+              - node
+        rules:
+          - MATCH,Proxies
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let groups = ConfigManager.shared.parseProxyGroups(from: merged)
+        #expect(groups.first { $0.name == "PROXY" }?.proxies.first == "DIRECT")
+    }
+
+    @Test("no-resolve is not mistaken for a rule target")
+    func noResolveIsNotATarget() {
+        let sub = """
+        proxies:
+          - {name: node, type: vless, server: 1.2.3.4, port: 443}
+        proxy-groups:
+          - name: no-resolve
+            type: select
+            proxies:
+              - node
+        rules:
+          - IP-CIDR,1.2.3.0/24,Proxies,no-resolve
+          - MATCH,Proxies
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        // `no-resolve` is a modifier on the rule above, not a target, so the
+        // group of that name is not what keeps PROXY from being injected.
+        let groups = ConfigManager.shared.parseProxyGroups(from: merged)
+        #expect(!groups.contains { $0.name == "PROXY" })
     }
 }
 
