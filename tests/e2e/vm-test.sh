@@ -73,14 +73,17 @@ for i in $(seq 1 60); do
     fi
     if [ $((i % 15)) -eq 0 ]; then
         echo "Still waiting for VPN manager... ${i}s"
-        systemextensionsctl list 2>/dev/null | grep -i bao || true
+        ls "$APP_PATH/Contents/PlugIns/" 2>/dev/null || true
+        scutil --nc status "$VPN_NAME" 2>/dev/null | head -1 || true
     fi
     sleep 1
 done
 if [ "$VPN_READY" = false ]; then
     echo "ERROR: VPN manager not ready after 60s"
-    echo "System extensions:"
-    systemextensionsctl list 2>/dev/null || true
+    echo "App extension:"
+    ls -la "$APP_PATH/Contents/PlugIns/" 2>/dev/null || true
+    echo "VPN status:"
+    scutil --nc status "$VPN_NAME" 2>/dev/null || true
     echo "App VPN logs (since launch):"
     /usr/bin/log show --start "$LAUNCH_TIME" --style compact --predicate "subsystem == 'io.github.baoliandeng'" 2>/dev/null | tail -20 || true
     exit 1
@@ -146,13 +149,12 @@ else
     fail "Traffic stats endpoint not responding"
 fi
 
-# Test 4: System extension is active
-echo "--- Test: System extension ---"
-SYSEXT=$(systemextensionsctl list 2>/dev/null | grep -c "activated enabled" || echo "0")
-if [ "$SYSEXT" -gt 0 ]; then
-    pass "System extension is activated and enabled"
+# Test 4: App extension is embedded
+echo "--- Test: App extension ---"
+if [ -d "$APP_PATH/Contents/PlugIns/TransparentProxy.appex" ]; then
+    pass "TransparentProxy.appex is embedded"
 else
-    fail "System extension not active"
+    fail "TransparentProxy.appex missing from app bundle"
 fi
 
 # Test 5: DNS resolution via tunnel

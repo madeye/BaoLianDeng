@@ -70,8 +70,8 @@ struct SettingsView: View {
                 }
             }
 
-            // App-extension builds (Mac App Store) have no system extension
-            // to uninstall — the provider lives inside the app bundle.
+            // App-extension builds (MAS / local) have no system extension
+            // to uninstall — the provider lives in PlugIns as an .appex.
             if !VPNManager.providerIsAppExtension {
                 Section("System Extension") {
                     Button("Uninstall System Extension") {
@@ -122,7 +122,7 @@ struct SettingsView: View {
             Text("Proxy Method")
         } footer: {
             if vpnManager.engineMode == .localProxy {
-                Text("Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no system extension or VPN configuration needed. Apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.")
+                Text("Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no network extension or VPN configuration needed. Apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.")
             } else {
                 Text("Intercepts all traffic system-wide via the Network Extension.")
             }
