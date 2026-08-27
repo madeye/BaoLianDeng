@@ -13,7 +13,7 @@ macOS VPN proxy app powered by [meow-rs](https://github.com/meow-rs/meow-rs), a 
 - **Smart Proxy Routing** — Browse nodes with latency indicators, switch proxy groups, rule/global/direct modes
 - **Traffic Analytics** — Daily bar charts, session stats, and monthly summaries for proxy traffic
 
-> **Known differences from upstream mihomo:** `meow-rs` is built without `boring-tls`, so there's no Reality/uTLS fingerprinting and no `ech-tls-tunnel` outbound. It also doesn't yet support TUIC, WireGuard, SSH, or ShadowsocksR outbounds. Supported outbounds: ss, trojan, vless (+ vision), vmess, snell, hysteria2.
+> **Known differences from upstream mihomo:** TUIC, WireGuard, SSH, and ShadowsocksR outbounds are not supported. Supported outbounds: ss (including the built-in `ech-tls-tunnel` plugin), trojan, vless (+ vision, + post-quantum encryption, + REALITY), vmess, snell, hysteria2, anytls, plus sing-mux (`smux:`). `client-fingerprint:` (uTLS) is live via `boring-tls`.
 
 ## Architecture
 
@@ -26,10 +26,10 @@ macOS VPN proxy app powered by [meow-rs](https://github.com/meow-rs/meow-rs), a 
 │  │  Nodes   │ Editor │& Stats│ Logs      │  │
 │  └──────────┴────────┴───────┴───────────┘  │
 │  ┌───────────────────────────────────────┐  │
-│  │  VPNManager (NETunnelProviderManager) │  │
+│  │  VPNManager (NETransparentProxyManager)│  │
 │  └──────────────────┬────────────────────┘  │
 ├─────────────────────┼───────────────────────┤
-│    System Extension (TransparentProxy)      │
+│  App Extension (PlugIns/TransparentProxy)   │
 │  ┌──────────────────┴────────────────────┐  │
 │  │  NETransparentProxyProvider           │  │
 │  │    ┌──────────────────────────────┐   │  │
@@ -75,9 +75,9 @@ cp Local.xcconfig.template Local.xcconfig
 
 > **Finding your Team ID:** Apple Developer portal → Membership → Team ID (10-character string, e.g. `AB12CD34EF`).
 
-Both targets require these capabilities (already configured in entitlements):
+The app and the provider require these capabilities (already configured in entitlements):
 - **App Sandbox**
-- **Network Extensions** — Packet Tunnel Provider
+- **Network Extensions** — App Proxy Provider (transparent proxy)
 
 #### 3. Build and run
 

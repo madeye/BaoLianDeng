@@ -90,9 +90,10 @@ echo "--- Step 6: Wait for engine ---"
 LOG_FILE="$LOG_DIR/rust_bridge.log"
 ENGINE_READY=false
 for i in $(seq 1 30); do
-    if [ -f "$LOG_FILE" ] && \
-       grep -q "engine started successfully" "$LOG_FILE" 2>/dev/null && \
-       grep -q "packet_thread: entering main loop" "$LOG_FILE" 2>/dev/null; then
+    if [ -f "$LOG_FILE" ] && {
+           grep -q "meow engine started" "$LOG_FILE" 2>/dev/null ||
+           grep -q "engine started successfully" "$LOG_FILE" 2>/dev/null
+       }; then
         echo "Engine ready after ${i}s"
         ENGINE_READY=true
         sleep 3

@@ -1,8 +1,10 @@
 #!/bin/bash
-# Build a signed, notarized release PKG installer.
-# PKG is preferred over DMG for apps with system extensions because the
-# installer places the app in /Applications directly, which is required
-# for system extension approval.
+# Build a signed, notarized release PKG installer for Developer ID
+# distribution. Outside the App Store, transparent proxy must ship as a
+# system extension (TN3134); Mac App Store and local Debug/Release builds
+# use the app extension instead. PKG is preferred over DMG on this channel
+# because the installer places the app in /Applications, which is required
+# for system-extension approval.
 #
 # Required env vars:
 #   ASC_KEY_P8_PATH  — path to App Store Connect .p8 key file
@@ -60,10 +62,10 @@ xcodebuild archive \
   | tail -3
 
 echo "=== Step 2b: Prune app extension (Developer ID ships the sysext) ==="
-# Both provider packagings are embedded during the build. App extensions are
-# App Store-only (TN3134), so Developer ID builds ship only the system
-# extension. exportArchive re-signs the app, giving the pruned bundle a
-# fresh seal.
+# Both provider packagings are embedded during the build. The default path
+# (MAS / local) is the app extension; Developer ID builds prune it and keep
+# the system extension (TN3134). exportArchive re-signs the app, giving the
+# pruned bundle a fresh seal.
 APP_IN_ARCHIVE="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
 rm -rf "${APP_IN_ARCHIVE}/Contents/PlugIns/TransparentProxy.appex"
 if [ ! -d "${APP_IN_ARCHIVE}/Contents/Library/SystemExtensions" ]; then

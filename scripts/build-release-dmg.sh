@@ -1,6 +1,9 @@
 #!/bin/bash
-# Build a signed, notarized release DMG with /Applications shortcut.
-# Uses xcodebuild -exportArchive for proper Developer ID signing.
+# Build a signed, notarized Developer ID release DMG with /Applications
+# shortcut. Outside the App Store the provider must ship as a system
+# extension (TN3134); Mac App Store and local Debug/Release use the app
+# extension instead. Uses xcodebuild -exportArchive for proper Developer ID
+# signing.
 #
 # Required env vars:
 #   ASC_KEY_P8_PATH  — path to App Store Connect .p8 key file
@@ -53,10 +56,10 @@ xcodebuild archive \
   | tail -3
 
 echo "=== Step 2b: Prune app extension (Developer ID ships the sysext) ==="
-# Both provider packagings are embedded during the build. App extensions are
-# App Store-only (TN3134), so Developer ID builds ship only the system
-# extension. exportArchive re-signs the app, giving the pruned bundle a
-# fresh seal.
+# Both provider packagings are embedded during the build. The default path
+# (MAS / local) is the app extension; Developer ID builds prune it and keep
+# the system extension (TN3134). exportArchive re-signs the app, giving the
+# pruned bundle a fresh seal.
 APP_IN_ARCHIVE="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
 rm -rf "${APP_IN_ARCHIVE}/Contents/PlugIns/TransparentProxy.appex"
 if [ ! -d "${APP_IN_ARCHIVE}/Contents/Library/SystemExtensions" ]; then
