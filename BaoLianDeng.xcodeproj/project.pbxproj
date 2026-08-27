@@ -740,7 +740,7 @@
 				CODE_SIGN_ENTITLEMENTS = TransparentProxyMac/TransparentProxyMac.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260812;
+				CURRENT_PROJECT_VERSION = 20260827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -753,7 +753,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 6.0;
+				MARKETING_VERSION = 6.1;
 				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
@@ -778,7 +778,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260812;
+				CURRENT_PROJECT_VERSION = 20260827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -791,7 +791,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 6.0;
+				MARKETING_VERSION = 6.1;
 				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
@@ -825,7 +825,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 6.0;
+				MARKETING_VERSION = 6.1;
 				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
@@ -863,7 +863,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 6.0;
+				MARKETING_VERSION = 6.1;
 				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
@@ -894,7 +894,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TransparentProxyAppex/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 6.0;
+				MARKETING_VERSION = 6.1;
 				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
@@ -916,7 +916,7 @@
 				CODE_SIGN_ENTITLEMENTS = TransparentProxyMac/TransparentProxyMac.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260812;
+				CURRENT_PROJECT_VERSION = 20260827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -925,7 +925,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TransparentProxyAppex/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 6.0;
+				MARKETING_VERSION = 6.1;
 				NE_PROVIDER_SUFFIX = "";
 				OTHER_LDFLAGS = (
 					"-lresolv",
