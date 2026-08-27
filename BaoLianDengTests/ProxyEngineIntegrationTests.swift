@@ -159,6 +159,93 @@ struct ProxyEngineIntegrationTests {
         #expect(body.contains("connections"), "Response should contain connections key")
     }
 
+    @Test("Secret-protected controller rejects unauthenticated reads")
+    func controllerRequiresSecret() async throws {
+        let secret = "test-secret-2f8c1d"
+        let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal, controllerSecret: secret)
+        defer { ProxyEngineHelper.stop(context: ctx) }
+
+        let url = URL(string: "http://\(ctx.controllerAddr)/connections")!
+
+        // A bare URL — what TrafficStore used to send — is refused. The rest
+        // of this suite runs an open controller, so nothing else would catch
+        // a REST client that forgets the header.
+        let (_, bare) = try await URLSession.shared.data(from: url)
+        #expect((bare as? HTTPURLResponse)?.statusCode == 401)
+    }
+
+    @Test("authorizedControllerRequest is accepted by a secret-protected controller")
+    func authorizedRequestIsAccepted() async throws {
+        let secret = "test-secret-9a41be"
+        let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal, controllerSecret: secret)
+        defer { ProxyEngineHelper.stop(context: ctx) }
+
+        let defaults = AppConstants.sharedDefaults
+        let priorAddr = defaults.string(forKey: AppConstants.externalControllerAddrKey)
+        let priorSecret = defaults.string(forKey: AppConstants.externalControllerSecretKey)
+        defaults.set(ctx.controllerAddr, forKey: AppConstants.externalControllerAddrKey)
+        defaults.set(secret, forKey: AppConstants.externalControllerSecretKey)
+        defer {
+            defaults.set(priorAddr, forKey: AppConstants.externalControllerAddrKey)
+            defaults.set(priorSecret, forKey: AppConstants.externalControllerSecretKey)
+        }
+
+        let url = try #require(AppConstants.externalControllerURL(pathSegments: ["connections"]))
+        let request = AppConstants.authorizedControllerRequest(url: url)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["connections"] != nil, "authorized read should yield a connections payload")
+    }
+
+    @MainActor
+    @Test("TrafficStore counters populate against a secret-protected controller")
+    func trafficStorePollsAuthenticatedController() async throws {
+        let secret = "test-secret-b73e05"
+        let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal, controllerSecret: secret)
+        defer { ProxyEngineHelper.stop(context: ctx) }
+
+        let target = try #require(LocalHTTPServer(), "could not bind loopback HTTP target")
+        defer { target.stop() }
+
+        let defaults = AppConstants.sharedDefaults
+        let priorAddr = defaults.string(forKey: AppConstants.externalControllerAddrKey)
+        let priorSecret = defaults.string(forKey: AppConstants.externalControllerSecretKey)
+        defaults.set(ctx.controllerAddr, forKey: AppConstants.externalControllerAddrKey)
+        defaults.set(secret, forKey: AppConstants.externalControllerSecretKey)
+        defer {
+            defaults.set(priorAddr, forKey: AppConstants.externalControllerAddrKey)
+            defaults.set(priorSecret, forKey: AppConstants.externalControllerSecretKey)
+        }
+
+        _ = ProxyEngineHelper.curlThroughProxy(
+            url: "http://127.0.0.1:\(target.port)/generate_204",
+            socksPort: ctx.socksPort,
+            timeout: 10
+        )
+
+        let store = TrafficStore.shared
+        store.resetTrafficStateForTesting()
+        store.startPolling()
+        defer {
+            store.stopPolling()
+            store.resetTrafficStateForTesting()
+        }
+
+        // Poll until a sample lands. A REST client that omits the Bearer
+        // header gets 401 here and the counters never leave zero — which is
+        // exactly the bug that showed the UI "Zero KB" while the engine was
+        // moving tens of megabytes.
+        var downloaded: Int64 = 0
+        for _ in 0..<40 {
+            try await Task.sleep(nanoseconds: 200_000_000)
+            downloaded = store.sessionProxyDownload
+            if downloaded > 0 { break }
+        }
+        #expect(downloaded > 0, "authenticated polling should report the engine's byte counters")
+    }
+
     @Test("Rules loaded from config")
     func rulesLoaded() async throws {
         let ctx = try ProxyEngineHelper.start(config: TestConfigs.minimal)

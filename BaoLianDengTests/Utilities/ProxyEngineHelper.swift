@@ -14,11 +14,15 @@ enum ProxyEngineHelper {
         let tempDir: String
         let socksPort: UInt16
         let controllerAddr: String
+        let controllerSecret: String
     }
 
     /// Start the mihomo engine with the given YAML config.
     /// Returns a context for cleanup. Call `stop(context:)` when done.
-    static func start(config: String) throws -> EngineContext {
+    /// - Parameter controllerSecret: REST controller secret. Defaults to ""
+    ///   (open controller) so existing callers keep querying it unauthenticated;
+    ///   pass a value to exercise the authenticated path production always uses.
+    static func start(config: String, controllerSecret: String = "") throws -> EngineContext {
         // Always stop any previously running engine and wait for full shutdown
         BridgeStopProxy()
         Thread.sleep(forTimeInterval: 1.0)
@@ -49,7 +53,7 @@ enum ProxyEngineHelper {
 
         var startError: NSError?
         BridgeStartWithPorts(
-            Int32(socksPort), Int32(dnsPort), controllerAddr, "", &startError
+            Int32(socksPort), Int32(dnsPort), controllerAddr, controllerSecret, &startError
         )
         if let err = startError {
             try? FileManager.default.removeItem(atPath: tempDir)
@@ -62,7 +66,8 @@ enum ProxyEngineHelper {
         return EngineContext(
             tempDir: tempDir,
             socksPort: socksPort,
-            controllerAddr: controllerAddr
+            controllerAddr: controllerAddr,
+            controllerSecret: controllerSecret
         )
     }
 
