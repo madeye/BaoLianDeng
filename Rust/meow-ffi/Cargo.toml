@@ -1,6 +1,6 @@
 [package]
 name = "meow-ffi"
-version = "0.21.1"
+version = "0.21.2"
 edition = "2021"
 rust-version = "1.89"
 license = "MIT"
@@ -12,7 +12,7 @@ name = "meow_ffi"
 crate-type = ["staticlib"]
 
 [dependencies]
-# meow-rs kernel crates, pinned to a single git rev (== local checkout HEAD).
+# meow-rs kernel crates, pinned to the GLOBAL default fix (meow-rs/meow-rs#501).
 # Protocol features mirror meow-app's `full` protocol set, INCLUDING
 # `ech-tls-tunnel` (pulls rustls/aws_lc_rs via meow-transport's `ech` feature —
 # aws-lc-sys builds fine for both darwin arches) and `boring-tls`, which is
@@ -22,17 +22,17 @@ crate-type = ["staticlib"]
 # with cmake per arch — both darwin arches compile, so the universal lipo
 # still works (see Makefile). `mux` is sing-mux multiplexing (`smux:` on an
 # outbound); it is part of meow-app's `full` set, so it is listed here too.
-meow-common = { git = "https://github.com/meow-rs/meow-rs.git", rev = "bc38424bcea5efad18b4dbb2ebd679f54fc68531" }
-meow-config = { git = "https://github.com/meow-rs/meow-rs.git", rev = "bc38424bcea5efad18b4dbb2ebd679f54fc68531", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vless-encryption", "vmess", "snell", "hysteria2", "anytls", "ech-tls-tunnel", "mux", "boring-tls"] }
-meow-dns = { git = "https://github.com/meow-rs/meow-rs.git", rev = "bc38424bcea5efad18b4dbb2ebd679f54fc68531" }
-meow-tunnel = { git = "https://github.com/meow-rs/meow-rs.git", rev = "bc38424bcea5efad18b4dbb2ebd679f54fc68531" }
-meow-listener = { git = "https://github.com/meow-rs/meow-rs.git", rev = "bc38424bcea5efad18b4dbb2ebd679f54fc68531", default-features = false, features = ["listener-mixed"] }
-meow-api = { git = "https://github.com/meow-rs/meow-rs.git", rev = "bc38424bcea5efad18b4dbb2ebd679f54fc68531" }
+meow-common = { git = "https://github.com/meow-rs/meow-rs.git", rev = "c2b072f59936545cf63df90a7e45c611b47f82f4" }
+meow-config = { git = "https://github.com/meow-rs/meow-rs.git", rev = "c2b072f59936545cf63df90a7e45c611b47f82f4", default-features = false, features = ["ss", "trojan", "vless", "vless-vision", "vless-encryption", "vmess", "snell", "hysteria2", "anytls", "ech-tls-tunnel", "mux", "boring-tls"] }
+meow-dns = { git = "https://github.com/meow-rs/meow-rs.git", rev = "c2b072f59936545cf63df90a7e45c611b47f82f4" }
+meow-tunnel = { git = "https://github.com/meow-rs/meow-rs.git", rev = "c2b072f59936545cf63df90a7e45c611b47f82f4" }
+meow-listener = { git = "https://github.com/meow-rs/meow-rs.git", rev = "c2b072f59936545cf63df90a7e45c611b47f82f4", default-features = false, features = ["listener-mixed"] }
+meow-api = { git = "https://github.com/meow-rs/meow-rs.git", rev = "c2b072f59936545cf63df90a7e45c611b47f82f4" }
 # meow-app is pulled in ONLY for its `health_check` lib helpers (url-test /
 # fallback group probing). default-features = false drops its `full` bundle;
 # protocol features (including boring-tls) come from meow-config above and
 # unify onto the shared crate instances.
-meow-app = { git = "https://github.com/meow-rs/meow-rs.git", rev = "bc38424bcea5efad18b4dbb2ebd679f54fc68531", default-features = false }
+meow-app = { git = "https://github.com/meow-rs/meow-rs.git", rev = "c2b072f59936545cf63df90a7e45c611b47f82f4", default-features = false }
 
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
 parking_lot = "0.12"

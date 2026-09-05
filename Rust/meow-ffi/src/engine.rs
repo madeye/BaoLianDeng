@@ -17,7 +17,7 @@ use meow_api::log_stream::LogMessage;
 use meow_api::ApiServer;
 use meow_config::proxy_provider::ProxyProvider;
 use meow_config::rule_provider::RuleProvider;
-use meow_config::{load_config, ListenerType, NamedListener};
+use meow_config::{load_config, ListenerSpec, NamedListener};
 use meow_dns::DnsServer;
 use meow_listener::{MixedListener, SnifferRuntime};
 use meow_tunnel::Tunnel;
@@ -61,6 +61,7 @@ pub async fn assemble(
     controller_addr: String,
     secret: String,
 ) -> anyhow::Result<EngineState> {
+    clear_saved_global_selection(&home).await?;
     let mut config = load_config_pinned(&config_path, &home).await?;
 
     // Force inbound / DNS / controller endpoints regardless of the YAML.
@@ -98,14 +99,13 @@ pub async fn assemble(
 
     config.listeners.named = vec![NamedListener {
         name: "mixed".to_string(),
-        listener_type: ListenerType::Mixed,
+        spec: ListenerSpec::Mixed,
         port: socks_addr.port(),
         listen: if lan_merged {
             lan_bind.clone()
         } else {
             "127.0.0.1".to_string()
         },
-        tproxy_sni: false,
         max_connections: 0,
     }];
     if allow_lan {
@@ -113,10 +113,9 @@ pub async fn assemble(
         if !lan_merged {
             config.listeners.named.push(NamedListener {
                 name: "mixed-lan".to_string(),
-                listener_type: ListenerType::Mixed,
+                spec: ListenerSpec::Mixed,
                 port: lan_proxy_port,
                 listen: lan_bind.clone(),
-                tproxy_sni: false,
                 max_connections: 0,
             });
         }
@@ -311,4 +310,26 @@ async fn load_config_pinned(config_path: &str, home: &str) -> anyhow::Result<meo
     let loaded = load_config(&tmp).await;
     let _ = tokio::fs::remove_file(&tmp).await;
     loaded
+}
+
+/// Older app builds PUT their guessed GLOBAL target into the engine cache.
+/// Clear only that entry before loading; real per-group choices stay intact.
+/// GLOBAL now follows the config's explicit definition or the engine default.
+async fn clear_saved_global_selection(home: &str) -> anyhow::Result<()> {
+    let path = std::path::Path::new(home).join("selector-cache.json");
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    // meow-rs itself treats malformed stores as empty.
+    let Ok(mut selections) = serde_json::from_slice::<HashMap<String, String>>(&bytes) else {
+        return Ok(());
+    };
+    if selections.remove("GLOBAL").is_some() {
+        let tmp = path.with_extension("json.tmp");
+        tokio::fs::write(&tmp, serde_json::to_vec(&selections)?).await?;
+        tokio::fs::rename(&tmp, &path).await?;
+    }
+    Ok(())
 }

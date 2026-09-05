@@ -39,6 +39,16 @@ struct ProxyGroupSelectionsTests {
         }
     }
 
+    @Test("Old GLOBAL defaults are excluded before startup replay")
+    func dropsSavedGlobalDefault() {
+        withScratchDefaults { defaults in
+            setSubscription("sub-a", in: defaults)
+            defaults.set(["sub-a": ["GLOBAL": "DIRECT", "PROXY": "HK-01"]],
+                         forKey: ProxyGroupSelections.storageKey)
+            #expect(ProxyGroupSelections.load(from: defaults) == ["PROXY": "HK-01"])
+        }
+    }
+
     @Test("Selections do not leak between subscriptions")
     func scopedPerSubscription() {
         withScratchDefaults { defaults in

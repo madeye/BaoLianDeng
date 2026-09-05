@@ -34,7 +34,9 @@ final class ProxyGroupsViewModel {
 
         do {
             let result = try await MihomoAPI.fetchProxiesResult()
-            groups = result.groups.values.sorted { $0.name < $1.name }
+            groups = result.groups.values
+                .filter { $0.name != "GLOBAL" }
+                .sorted { $0.name < $1.name }
             proxies = result.proxies
 
             // Extract delays from proxy history
@@ -53,7 +55,9 @@ final class ProxyGroupsViewModel {
             if let yaml = fallbackYAML, !yaml.isEmpty {
                 let parsed = ProxiesResult.fromYAML(yaml)
                 if !parsed.groups.isEmpty {
-                    groups = parsed.groups.values.sorted { $0.name < $1.name }
+                    groups = parsed.groups.values
+                        .filter { $0.name != "GLOBAL" }
+                        .sorted { $0.name < $1.name }
                     proxies = parsed.proxies
                     mergeLoadedGroups(groups)
                 }
@@ -155,7 +159,11 @@ final class ProxyGroupsViewModel {
         groups: [MihomoProxyGroup]
     ) -> [String: String] {
         var result = existing
+        // GLOBAL is managed by the engine for `mode: global` and hidden from the picker;
+        // never persist or replay a pick for it (stale node / quota pseudo-node).
+        result["GLOBAL"] = nil
         for group in groups {
+            guard group.name != "GLOBAL" else { continue }
             guard group.type == "Selector" else {
                 result[group.name] = nil
                 continue

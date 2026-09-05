@@ -57,7 +57,10 @@ enum ProxyGroupSelections {
     /// Saved selections for the active subscription, `[groupName: proxyName]`.
     static func load(from defaults: UserDefaults = AppConstants.sharedDefaults) -> [String: String] {
         migrateLegacyStorageIfNeeded(in: defaults)
-        return allScopes(in: defaults)[currentScope(in: defaults)] ?? [:]
+        // Older builds saved GLOBAL's initial DIRECT or quota-node selection.
+        // Let the engine choose GLOBAL from the config instead of replaying it.
+        return (allScopes(in: defaults)[currentScope(in: defaults)] ?? [:])
+            .filter { $0.key != "GLOBAL" }
     }
 
     /// Replace the active subscription's selections. Other scopes are kept.
