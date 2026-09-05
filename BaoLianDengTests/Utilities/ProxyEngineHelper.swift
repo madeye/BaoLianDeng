@@ -10,6 +10,10 @@ import MihomoCore
 /// Creates a temp directory, writes config, starts engine, and cleans up.
 enum ProxyEngineHelper {
 
+    // meow-rs pins its resource-cache home on first use in this process.
+    // Recreate one directory per test so seeded caches use the real home.
+    private static let engineHome = NSTemporaryDirectory() + "bld-engine-test-\(UUID().uuidString)"
+
     struct EngineContext {
         let tempDir: String
         let socksPort: UInt16
@@ -22,12 +26,14 @@ enum ProxyEngineHelper {
     /// - Parameter controllerSecret: REST controller secret. Defaults to ""
     ///   (open controller) so existing callers keep querying it unauthenticated;
     ///   pass a value to exercise the authenticated path production always uses.
-    static func start(config: String, controllerSecret: String = "") throws -> EngineContext {
+    static func start(
+        config: String, controllerSecret: String = "", selectorCache: [String: String]? = nil
+    ) throws -> EngineContext {
         // Always stop any previously running engine and wait for full shutdown
         BridgeStopProxy()
         Thread.sleep(forTimeInterval: 1.0)
 
-        let tempDir = NSTemporaryDirectory() + "bld-engine-test-\(UUID().uuidString)"
+        let tempDir = engineHome
         try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
 
         // Copy geodata files
@@ -36,6 +42,11 @@ enum ProxyEngineHelper {
         // Write config
         let configPath = tempDir + "/config.yaml"
         try config.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        if let selectorCache {
+            let cache = try JSONSerialization.data(withJSONObject: selectorCache)
+            try cache.write(to: URL(fileURLWithPath: tempDir + "/selector-cache.json"))
+        }
 
         // Set home dir and start
         BridgeSetHomeDir(tempDir)

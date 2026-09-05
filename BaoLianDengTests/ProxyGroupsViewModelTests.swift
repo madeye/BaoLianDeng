@@ -48,6 +48,20 @@ struct ProxyGroupSelectionMergeTests {
         #expect(merged["FALLBACK"] == nil)
     }
 
+    @Test("Drops the engine GLOBAL selector so it is never replayed")
+    func dropsInjectedGlobalSelector() {
+        let groups = [
+            selector("GLOBAL", now: "DIRECT", all: ["DIRECT", "PROXY"]),
+            selector("PROXY", now: "HK", all: ["HK", "US"])
+        ]
+        let merged = ProxyGroupsViewModel.mergedSelections(
+            ["GLOBAL": "HK", "PROXY": "US"],
+            groups: groups
+        )
+        #expect(merged["GLOBAL"] == nil)
+        #expect(merged["PROXY"] == "US")
+    }
+
     @Test("Preserves selections for groups absent from the loaded config")
     func preservesSelectionsForAbsentGroups() {
         // Switching subscriptions must not erase the other profile's choices

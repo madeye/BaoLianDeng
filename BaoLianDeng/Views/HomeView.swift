@@ -226,12 +226,6 @@ struct HomeView: View {
                     // Live switch via REST API — no tunnel restart needed
                     Task {
                         try? await MihomoAPI.switchMode(newMode.rawValue)
-                        // The engine's auto-created GLOBAL selector defaults to
-                        // DIRECT (sorted member list); point it at a real
-                        // target or global mode routes all traffic direct.
-                        if newMode == .global {
-                            vpnManager.syncGlobalSelector()
-                        }
                     }
                     ConfigManager.shared.setMode(newMode.rawValue)
                 } else {

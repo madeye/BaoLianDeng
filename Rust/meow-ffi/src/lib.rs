@@ -514,7 +514,7 @@ pub extern "C" fn bridge_version() -> *const c_char {
     // meow crate version at the pinned rev; cosmetic (Swift never parses it).
     match catch_unwind(AssertUnwindSafe(|| {
         VERSION
-            .get_or_init(|| CString::new("meow-rs 0.21.1").unwrap())
+            .get_or_init(|| CString::new("meow-rs 0.21.2").unwrap())
             .as_ptr()
     })) {
         Ok(ptr) => ptr,
@@ -803,8 +803,8 @@ rules:
         assert!(!v.is_empty());
         assert!(v.contains("meow-rs"), "version was: {v}");
         assert!(
-            v.contains("0.21.1"),
-            "expected pinned meow-rs workspace version 0.21.1, got: {v}"
+            v.contains("0.21.2"),
+            "expected pinned meow-rs workspace version 0.21.2, got: {v}"
         );
     }
 
