@@ -15,6 +15,10 @@
 # hash pin, so a build-number bump is not required for reload.
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deploy-lib.sh
+source "${SCRIPT_DIR}/lib/deploy-lib.sh"
+
 VPN_NAME="BaoLianDeng"
 APP_PATH="/Applications/BaoLianDeng.app"
 PROJECT_DIR="/Volumes/DATA/workspace/BaoLianDeng"
@@ -39,23 +43,28 @@ make framework
 
 echo "=== Step 4: Build app (Release) ==="
 rm -rf ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*
-xcodebuild build \
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/BaoLianDeng-build.XXXXXX.log")"
+BUILD_STATUS=0
+xcodebuild_logged "$BUILD_LOG" 3 build \
   -project BaoLianDeng.xcodeproj \
   -scheme BaoLianDeng \
   -configuration Release \
-  -destination 'platform=macOS' 2>&1 | tail -3
+  -destination 'platform=macOS' || BUILD_STATUS=$?
+rm -f "$BUILD_LOG"
+if [ "$BUILD_STATUS" -ne 0 ]; then
+    echo "ERROR: xcodebuild build failed (exit ${BUILD_STATUS}); leaving installed app untouched"
+    exit "$BUILD_STATUS"
+fi
 
 echo "=== Step 5: Install ==="
-rm -rf "$APP_PATH"
-cp -R ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app "$APP_PATH"
-if [ ! -d "$APP_PATH/Contents/PlugIns/TransparentProxy.appex" ]; then
-    echo "ERROR: TransparentProxy.appex missing from installed app"
+# Validate the freshly built bundle and stage it before touching the
+# installed app — a failed or incomplete build must never remove a working
+# install (issue #113 finding 3).
+BUILT_APP=$(echo ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app)
+if ! install_app_bundle "$BUILT_APP" "$APP_PATH"; then
+    echo "ERROR: install failed; any previously-installed app was left in place"
     exit 1
 fi
-# The Xcode project still embeds the Developer ID system-extension product.
-# Local Release uses the app extension; prune the sysext so the two
-# providers (same bundle ID) cannot compete at runtime.
-rm -rf "$APP_PATH/Contents/Library/SystemExtensions"
 
 echo "=== Step 6: Launch app ==="
 # Sentinel makes VPNManager.start() after the NE manager is ready — more

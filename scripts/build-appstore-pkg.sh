@@ -20,6 +20,10 @@
 #   SKIP_BUMP=1      — don't bump the Release build number
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deploy-lib.sh
+source "${SCRIPT_DIR}/lib/deploy-lib.sh"
+
 PROJECT_DIR="/Volumes/DATA/workspace/BaoLianDeng"
 APP_NAME="BaoLianDeng"
 SCHEME="BaoLianDeng"
@@ -60,7 +64,9 @@ echo "=== Step 1: Build framework ==="
 make framework
 
 echo "=== Step 2: Archive (App Store signing) ==="
-xcodebuild archive \
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-archive.XXXXXX.log")"
+ARCHIVE_STATUS=0
+xcodebuild_logged "$BUILD_LOG" 3 archive \
   -project ${APP_NAME}.xcodeproj \
   -scheme "$SCHEME" \
   -configuration Release \
@@ -71,8 +77,12 @@ xcodebuild archive \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
-  NE_PROVIDER_SUFFIX="" \
-  | tail -3
+  NE_PROVIDER_SUFFIX="" || ARCHIVE_STATUS=$?
+rm -f "$BUILD_LOG"
+if [ "$ARCHIVE_STATUS" -ne 0 ]; then
+  echo "ERROR: xcodebuild archive failed (exit ${ARCHIVE_STATUS})"
+  exit "$ARCHIVE_STATUS"
+fi
 
 echo "=== Step 2b: Prune system extension (MAS ships the appex) ==="
 # Both provider packagings are embedded during the build. App Store / local
@@ -105,15 +115,21 @@ cat > "$EXPORT_PLIST" <<PLIST
 PLIST
 
 rm -rf "$EXPORT_PATH"
-xcodebuild -exportArchive \
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-export.XXXXXX.log")"
+EXPORT_STATUS=0
+xcodebuild_logged "$BUILD_LOG" 3 -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_PLIST" \
   -allowProvisioningUpdates \
   -authenticationKeyPath "$ASC_KEY_P8_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \
-  -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-  | tail -3
+  -authenticationKeyIssuerID "$ASC_ISSUER_ID" || EXPORT_STATUS=$?
+rm -f "$BUILD_LOG"
+if [ "$EXPORT_STATUS" -ne 0 ]; then
+  echo "ERROR: xcodebuild -exportArchive failed (exit ${EXPORT_STATUS})"
+  exit "$EXPORT_STATUS"
+fi
 
 if [ ! -f "$PKG_PATH" ]; then
   echo "ERROR: ${PKG_PATH} not found after export"
