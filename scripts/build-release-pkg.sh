@@ -65,11 +65,12 @@ xcodebuild_logged "$BUILD_LOG" 3 archive \
   -destination 'generic/platform=macOS' \
   -archivePath "$ARCHIVE_PATH" \
   NE_PROVIDER_SUFFIX="-systemextension" || ARCHIVE_STATUS=$?
-rm -f "$BUILD_LOG"
 if [ "$ARCHIVE_STATUS" -ne 0 ]; then
   echo "ERROR: xcodebuild archive failed (exit ${ARCHIVE_STATUS})"
+  echo "Full log: $BUILD_LOG"
   exit "$ARCHIVE_STATUS"
 fi
+rm -f "$BUILD_LOG"
 
 echo "=== Step 2b: Prune app extension (Developer ID ships the sysext) ==="
 # Both provider packagings are embedded during the build. The default path
@@ -115,11 +116,12 @@ xcodebuild_logged "$BUILD_LOG" 3 -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_PLIST" || EXPORT_STATUS=$?
-rm -f "$BUILD_LOG"
 if [ "$EXPORT_STATUS" -ne 0 ]; then
   echo "ERROR: xcodebuild -exportArchive failed (exit ${EXPORT_STATUS})"
+  echo "Full log: $BUILD_LOG"
   exit "$EXPORT_STATUS"
 fi
+rm -f "$BUILD_LOG"
 
 APP_PATH="${EXPORT_PATH}/${APP_NAME}.app"
 if [ ! -d "$APP_PATH" ]; then

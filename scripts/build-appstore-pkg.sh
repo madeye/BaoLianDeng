@@ -78,11 +78,12 @@ xcodebuild_logged "$BUILD_LOG" 3 archive \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   NE_PROVIDER_SUFFIX="" || ARCHIVE_STATUS=$?
-rm -f "$BUILD_LOG"
 if [ "$ARCHIVE_STATUS" -ne 0 ]; then
   echo "ERROR: xcodebuild archive failed (exit ${ARCHIVE_STATUS})"
+  echo "Full log: $BUILD_LOG"
   exit "$ARCHIVE_STATUS"
 fi
+rm -f "$BUILD_LOG"
 
 echo "=== Step 2b: Prune system extension (MAS ships the appex) ==="
 # Both provider packagings are embedded during the build. App Store / local
@@ -125,11 +126,12 @@ xcodebuild_logged "$BUILD_LOG" 3 -exportArchive \
   -authenticationKeyPath "$ASC_KEY_P8_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" || EXPORT_STATUS=$?
-rm -f "$BUILD_LOG"
 if [ "$EXPORT_STATUS" -ne 0 ]; then
   echo "ERROR: xcodebuild -exportArchive failed (exit ${EXPORT_STATUS})"
+  echo "Full log: $BUILD_LOG"
   exit "$EXPORT_STATUS"
 fi
+rm -f "$BUILD_LOG"
 
 if [ ! -f "$PKG_PATH" ]; then
   echo "ERROR: ${PKG_PATH} not found after export"
