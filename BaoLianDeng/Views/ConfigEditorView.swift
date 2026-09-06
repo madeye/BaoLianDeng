@@ -219,13 +219,15 @@ struct ConfigEditorView: View {
         selectedSubscription = sub
         subscriptionText = sub.rawContent ?? ""
         guard !subscriptionText.isEmpty else { source = .local; return }
-        try? ConfigManager.shared.applySubscriptionConfig(
-            subscriptionText)
-        configText = (try? ConfigManager.shared.loadConfig())
-            ?? ConfigManager.shared.defaultConfig()
-        reparseConfig()
-        subscriptionProxyGroups = proxyGroups
-        subscriptionRules = rules
+        // Render the read-only subscription view from an in-memory merge.
+        // Writing that merge to disk here (as this used to) replaced the
+        // user's saved rule/group edits every time the editor appeared;
+        // config.yaml only changes when a subscription is selected or
+        // fetched (see `ConfigManager.loadBaseConfig`).
+        let merged = ConfigManager.shared.mergeSubscription(subscriptionText)
+        subscriptionProxyGroups = ConfigManager.shared.parseProxyGroups(
+            from: merged)
+        subscriptionRules = ConfigManager.shared.parseRules(from: merged)
     }
 
     private func saveConfig() {
