@@ -487,64 +487,34 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 
     // MARK: - TCP Relay
 
+    /// Relay flow <-> SOCKS5 with half-close semantics (see `TCPRelay`): EOF
+    /// from the app forwards a FIN to mihomo and keeps draining the response;
+    /// EOF from mihomo half-closes the flow's write side and keeps forwarding
+    /// the app's upload. Only errors, cancellation, or the post-half-close
+    /// idle bound stop the relay early.
     private func relayTCP(flow: NEAppProxyTCPFlow, connection: NWConnection) async {
-        await withTaskGroup(of: Void.self) { group in
-            // Flow → SOCKS5
-            group.addTask {
-                while !Task.isCancelled {
-                    let data: Data? = await withCancellableFlowContinuation(onCancel: nil) { resume in
-                        flow.readData { data, error in
-                            if error != nil || data == nil || data!.isEmpty {
-                                resume(nil)
-                            } else {
-                                resume(data)
-                            }
-                        }
-                    }
-                    guard let data else { break }
-                    do {
-                        try await SOCKS5Client.sendAll(connection: connection, data: data)
-                    } catch {
-                        break
-                    }
-                }
-            }
-
-            // SOCKS5 → Flow
-            group.addTask {
-                while !Task.isCancelled {
-                    do {
-                        let data = try await SOCKS5Client.readSome(connection: connection)
-                        guard !data.isEmpty else { break }
-                        let writeOK: Bool = await withCancellableFlowContinuation(onCancel: false) { resume in
-                            flow.write(data) { error in
-                                resume(error == nil)
-                            }
-                        }
-                        if !writeOK { break }
-                    } catch {
-                        break
-                    }
-                }
-            }
-
-            // First direction to finish tears the sibling down.
-            //
-            // `closeRead`/`closeWrite` and `NWConnection.cancel()` do **not**
-            // reliably invoke a pending NE / Network.framework callback. The
-            // previous code waited for both tasks and only "signalled" by
-            // closing; the sibling then sat forever in `readData`/`receive`,
-            // retaining the flow, the SOCKS connection, and three Tasks.
-            // Heap on a 2-day process showed ~11k of each. `cancelAll()`
-            // force-resumes the pending continuation via
-            // `withTaskCancellationHandler`.
-            _ = await group.next()
-            connection.cancel()
-            flow.closeReadWithError(nil)
-            flow.closeWriteWithError(nil)
-            group.cancelAll()
-            await group.waitForAll()
+        let outcome = await TCPRelay.run(
+            app: FlowRelayEndpoint(flow: flow),
+            proxy: NWConnectionRelayEndpoint(connection: connection)
+        )
+        if outcome == .halfCloseTimedOut {
+            log("TCP relay: peer never closed after half-close, idle bound hit")
         }
+
+        // Tear both endpoints down unconditionally.
+        //
+        // `closeRead`/`closeWrite` and `NWConnection.cancel()` do **not**
+        // reliably invoke a pending NE / Network.framework callback. An
+        // earlier version waited for both directions and only "signalled" by
+        // closing; the sibling then sat forever in `readData`/`receive`,
+        // retaining the flow, the SOCKS connection, and three Tasks. Heap on
+        // a 2-day process showed ~11k of each. `TCPRelay.run` cancels its
+        // task group before returning, which force-resumes any pending
+        // continuation via `withTaskCancellationHandler`; the closes below
+        // then release the underlying objects.
+        connection.cancel()
+        flow.closeReadWithError(nil)
+        flow.closeWriteWithError(nil)
     }
 
     // MARK: - IPC
@@ -851,33 +821,6 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 extension Collection {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
-    }
-}
-
-// MARK: - Flow continuation helper
-
-/// Bridge a flow completion-handler callback to async, resuming exactly once
-/// even if the handler fires more than once during teardown races — or never
-/// fires at all after `closeRead`/`closeWrite`.
-///
-/// `NEAppProxyTCPFlow.readData`/`write` belong to the same flow family as
-/// `NEAppProxyFlow.open` (see `TransparentProxyProvider.openFlow`). The
-/// completion can fire multiple times (a bare `withCheckedContinuation`
-/// would trap "SWIFT TASK CONTINUATION MISUSE") **or never**, which is how
-/// finished TCP relays leaked ~11k flows. Task cancellation delivers
-/// `onCancel` so the waiter cannot pin the flow forever.
-private func withCancellableFlowContinuation<T: Sendable>(
-    onCancel: T,
-    _ body: (@escaping @Sendable (T) -> Void) -> Void
-) async -> T {
-    let gate = OnceResume<T>()
-    return await withTaskCancellationHandler {
-        await withCheckedContinuation { (cont: CheckedContinuation<T, Never>) in
-            gate.arm(cont)
-            body { gate.resume($0) }
-        }
-    } onCancel: {
-        gate.resume(onCancel)
     }
 }
 
