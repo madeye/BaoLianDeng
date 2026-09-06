@@ -221,17 +221,12 @@ final class NWConnectionRelayEndpoint: TCPRelayEndpoint, @unchecked Sendable {
     }
 
     func read() async throws -> TCPRelayRead {
-        lock.lock()
-        let eofAlreadySeen = pendingEOF
-        lock.unlock()
-        if eofAlreadySeen { return .eof }
+        if lock.withLock({ pendingEOF }) { return .eof }
 
         let chunk = try await SOCKS5Client.readSome(connection: connection)
         if chunk.data.isEmpty { return .eof }
         if chunk.isComplete {
-            lock.lock()
-            pendingEOF = true
-            lock.unlock()
+            lock.withLock { pendingEOF = true }
         }
         return .data(chunk.data)
     }
