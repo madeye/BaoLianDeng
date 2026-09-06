@@ -1669,3 +1669,111 @@ struct RuntimeDirectoryTests {
         #expect(runtimeDir.appendingPathComponent(AppConstants.configFileName) != ConfigManager.shared.configFileURL)
     }
 }
+
+/// The counterpart of the "merged INTO config.yaml" model: once the selection
+/// goes away (selected subscription deleted, or an unfetched one selected),
+/// the file must stop carrying the old subscription — startup no longer
+/// consults the selection, so nothing else would.
+@Suite("clearingSubscription")
+struct ClearingSubscriptionTests {
+
+    static let subscription = """
+    proxies:
+      - {name: sub-node, type: vless, server: 1.2.3.4, port: 443, uuid: u}
+    proxy-groups:
+      - name: Proxies
+        type: select
+        proxies:
+          - sub-node
+    proxy-providers:
+      remote:
+        type: http
+        url: https://example.com/nodes.yaml
+        path: nodes.yaml
+    rule-providers:
+      ads:
+        type: http
+        behavior: domain
+        url: https://example.com/ads.yaml
+        path: ads.yaml
+    rules:
+      - RULE-SET,ads,REJECT
+      - DOMAIN-SUFFIX,example.com,Proxies
+      - MATCH,DIRECT
+    dns:
+      enable: true
+      nameserver:
+        - https://sub.dns.example/dns-query
+    """
+
+    /// Simulate select → user edits the header → delete, and return the
+    /// cleared file.
+    private func cleared(engineMode: EngineMode = .vpn) -> String {
+        let defaultCfg = ConfigManager.shared.defaultConfig()
+        let merged = ConfigManager.mergeSubscription(
+            Self.subscription, baseConfig: defaultCfg, defaultConfig: defaultCfg
+        )
+        #expect(merged.contains("name: sub-node"))
+        #expect(merged.contains("https://sub.dns.example/dns-query"))
+        // The user then adds a nameserver in the editor on top of the merge.
+        let edited = merged.replacingOccurrences(
+            of: "  nameserver:\n",
+            with: "  nameserver:\n    - tls://user.dns.example\n"
+        )
+        #expect(edited.contains("tls://user.dns.example"))
+        return ConfigManager.clearingSubscription(
+            from: edited, defaultConfig: defaultCfg, engineMode: engineMode
+        )
+    }
+
+    @Test("Deleting the selected subscription puts the defaults back in the file")
+    func dropsSubscriptionSections() {
+        let result = cleared()
+        // Everything the subscription owned is gone …
+        #expect(!result.contains("sub-node"))
+        #expect(!result.contains("name: Proxies"))
+        #expect(!result.contains("proxy-providers:"))
+        #expect(!result.contains("rule-providers:"))
+        #expect(!result.contains("RULE-SET,ads,REJECT"))
+        #expect(!result.contains("DOMAIN-SUFFIX,example.com,Proxies"))
+        // … and the built-in defaults are what the next start runs.
+        #expect(result.contains("proxies: []"))
+        #expect(result.contains("DOMAIN-SUFFIX,google.com,PROXY"))
+        #expect(result.contains("MATCH,PROXY"))
+        let groups = ConfigManager.shared.parseProxyGroups(from: result)
+        #expect(groups.map(\.name) == ["PROXY"])
+        #expect(groups.first?.proxies == ["DIRECT"])
+        // The effective config the engine starts from agrees.
+        let effective = ConfigManager.buildEffectiveConfig(
+            base: result, engineMode: .vpn, settings: EngineRuntimeSettings()
+        )
+        #expect(!effective.contains("sub-node"))
+        #expect(effective.contains("MATCH,PROXY"))
+    }
+
+    @Test("Clearing keeps the header — including the user's DNS edits")
+    func keepsHeader() {
+        let result = cleared()
+        #expect(result.hasPrefix("mixed-port: 0\n"))
+        #expect(result.contains("geo-auto-update: false"))
+        // Unlike selecting a subscription, clearing never swaps in the
+        // defaults' dns block: what the user last saved stays.
+        #expect(result.contains("tls://user.dns.example"))
+        #expect(result.contains("https://sub.dns.example/dns-query"))
+        #expect(result.contains("enhanced-mode: fake-ip"))
+
+        let local = cleared(engineMode: .localProxy)
+        #expect(local.contains("enhanced-mode: redir-host"))
+        #expect(local.contains("tls://user.dns.example"))
+    }
+
+    @Test("Clearing a file that never had a subscription is a no-op on defaults")
+    func idempotentOnDefaults() {
+        let defaultCfg = ConfigManager.shared.defaultConfig()
+        let once = ConfigManager.clearingSubscription(from: defaultCfg, defaultConfig: defaultCfg)
+        let twice = ConfigManager.clearingSubscription(from: once, defaultConfig: defaultCfg)
+        #expect(once == twice)
+        #expect(once.contains("MATCH,PROXY"))
+        #expect(ConfigManager.shared.parseProxyGroups(from: once).map(\.name) == ["PROXY"])
+    }
+}

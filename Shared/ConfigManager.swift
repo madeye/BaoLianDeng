@@ -43,7 +43,11 @@ final class ConfigManager {
     /// the derived runtime YAML (`config.yaml` = base + user settings) plus
     /// links to the shared geodata files. The engine only ever loads
     /// `<home>/config.yaml`, so giving it its own home is what keeps startup
-    /// from overwriting `configFileURL` with a derived artifact.
+    /// from overwriting `configFileURL` with a derived artifact. Files the
+    /// engine writes relative to its config — provider `path:` caches,
+    /// `selector-cache.json` — land here too, so local-proxy mode refetches
+    /// providers once on its first start after this directory appears
+    /// (saved group selections are replayed over REST, not read from disk).
     var runtimeDirectoryURL: URL? {
         configDirectoryURL?.appendingPathComponent("runtime", isDirectory: true)
     }
@@ -212,8 +216,9 @@ final class ConfigManager {
     /// How the saved local config and the selected subscription compose:
     ///
     /// `config.yaml` (`configFileURL`) is the one authoritative, editable
-    /// base. The selected subscription is merged INTO it — header (ports,
-    /// `dns:`) kept from the file, proxies / proxy-groups / providers /
+    /// base. The selected subscription is merged INTO it — header kept from
+    /// the file (ports, and `dns:` unless the subscription ships its own
+    /// `dns:` block, which replaces it), proxies / proxy-groups / providers /
     /// rules taken from the subscription — by `applySubscriptionConfig`,
     /// which runs when a subscription is selected or (re)fetched. Between
     /// those events the file is the user's: whatever the Config Editor
@@ -224,6 +229,17 @@ final class ConfigManager {
     /// `rawContent` (and, with no subscription, with the built-in
     /// defaults). Refreshing a subscription still overwrites the merged
     /// sections — that is the documented cost of the "merged into" model.
+    ///
+    /// Because startup never consults the selection, the file must be
+    /// detached explicitly when the selection goes away: deleting the
+    /// selected subscription, or selecting one whose content has not been
+    /// fetched yet, runs `clearSubscriptionConfig` (defaults' proxies /
+    /// groups / rules back, providers dropped, header kept) so the engine
+    /// cannot keep routing through nodes the UI no longer shows as selected.
+    /// The one deliberate divergence left is the editor's Reset Default +
+    /// Save: it puts the built-in defaults in the file while the Home tab
+    /// still shows the subscription as selected, until it is re-selected or
+    /// refreshed — the editor's Save is authoritative by design.
     ///
     /// Runtime-only settings (log level, routing mode, Allow LAN, the local
     /// proxy port) and the engine-mode DNS invariants are layered on top by
@@ -963,6 +979,39 @@ final class ConfigManager {
         } catch {
             return false
         }
+    }
+
+    /// Detach the subscription from `config.yaml` — the inverse of
+    /// `applySubscriptionConfig`. Keeps the header (ports, `dns:` as the user
+    /// last saved it), puts the built-in default proxies / proxy-groups /
+    /// rules back, and drops any providers. Returns the YAML that was saved.
+    /// See `loadBaseConfig` for when this must run.
+    @discardableResult
+    func clearSubscriptionConfig() throws -> String {
+        let base = (try? loadConfig()) ?? defaultConfig()
+        let cleared = Self.clearingSubscription(
+            from: base, defaultConfig: defaultConfig(),
+            engineMode: EngineMode.load(from: AppConstants.sharedDefaults)
+        )
+        try saveConfig(cleared)
+        return cleared
+    }
+
+    /// Pure half of `clearSubscriptionConfig`: merges the defaults' own
+    /// proxies / proxy-groups / rules over `baseConfig` exactly as a
+    /// subscription would be, so the header (a user-edited `dns:` included)
+    /// survives and every subscription-owned section — providers included —
+    /// is gone. The default `dns:` is deliberately not part of the stub, so
+    /// unlike a real subscription it never replaces the user's DNS.
+    static func clearingSubscription(
+        from baseConfig: String, defaultConfig: String, engineMode: EngineMode = .vpn
+    ) -> String {
+        let keys = ["proxies", "proxy-groups", "rules"]
+        let stock = extractYAMLSections(from: defaultConfig, named: keys)
+        let stub = keys.compactMap { stock[$0] }.joined(separator: "\n\n")
+        return mergeSubscription(
+            stub, baseConfig: baseConfig, defaultConfig: defaultConfig, engineMode: engineMode
+        )
     }
 
     /// Off-main wrapper for `validateSubscriptionConfig`. SwiftUI views are
