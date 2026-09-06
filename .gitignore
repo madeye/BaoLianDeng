@@ -15,8 +15,8 @@ xcuserdata/
 # Framework (built from Rust source)
 Framework/MihomoCore.xcframework/
 
-# Rust build artifacts
-Rust/meow-ffi/target/
+# Rust build artifacts (also matches a symlinked target directory)
+Rust/meow-ffi/target
 
 # Release artifacts
 *.dmg
@@ -61,3 +61,5 @@ GoogleService-Info.plist
 CLAUDE.md
 .claude/
 docs/superpowers/
+# Worktree-local DerivedData
+.dd/
