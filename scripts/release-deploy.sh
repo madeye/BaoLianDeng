@@ -41,32 +41,23 @@ sleep 1
 echo "=== Step 3: Build framework ==="
 make framework
 
-echo "=== Step 4: Build app (Release) ==="
+echo "=== Step 4: Build and install app (Release) ==="
 rm -rf ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*
-BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/BaoLianDeng-build.XXXXXX.log")"
-BUILD_STATUS=0
-xcodebuild_logged "$BUILD_LOG" 3 build \
+# build_and_install_app validates and stages the freshly built bundle before
+# touching the installed app — a failed or incomplete build must never
+# remove a working install (issue #113 finding 3).
+if ! build_and_install_app \
+  '$HOME/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app' \
+  "$APP_PATH" 3 "Contents/PlugIns/TransparentProxy.appex" -- \
+  build \
   -project BaoLianDeng.xcodeproj \
   -scheme BaoLianDeng \
   -configuration Release \
-  -destination 'platform=macOS' || BUILD_STATUS=$?
-rm -f "$BUILD_LOG"
-if [ "$BUILD_STATUS" -ne 0 ]; then
-    echo "ERROR: xcodebuild build failed (exit ${BUILD_STATUS}); leaving installed app untouched"
-    exit "$BUILD_STATUS"
-fi
-
-echo "=== Step 5: Install ==="
-# Validate the freshly built bundle and stage it before touching the
-# installed app — a failed or incomplete build must never remove a working
-# install (issue #113 finding 3).
-BUILT_APP=$(echo ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app)
-if ! install_app_bundle "$BUILT_APP" "$APP_PATH"; then
-    echo "ERROR: install failed; any previously-installed app was left in place"
+  -destination 'platform=macOS'; then
     exit 1
 fi
 
-echo "=== Step 6: Launch app ==="
+echo "=== Step 5: Launch app ==="
 # Sentinel makes VPNManager.start() after the NE manager is ready — more
 # reliable for an app-extension provider than scutil --nc, which can race
 # before the configuration is registered.
@@ -74,7 +65,7 @@ touch /tmp/.bld-autoconnect
 open "$APP_PATH"
 sleep 3
 
-echo "=== Step 7: Start VPN ==="
+echo "=== Step 6: Start VPN ==="
 scutil --nc start "$VPN_NAME" 2>/dev/null || true
 CONNECTED=0
 for i in $(seq 1 30); do
@@ -95,7 +86,7 @@ if [ "$CONNECTED" -eq 0 ]; then
     echo "WARNING: VPN did not report connected within 30s"
 fi
 
-echo "=== Step 8: Wait for tunnel + meow engine startup ==="
+echo "=== Step 7: Wait for tunnel + meow engine startup ==="
 LOG_FILE="$LOG_DIR/rust_bridge.log"
 for i in $(seq 1 30); do
     if grep -q "meow engine started" "$LOG_FILE" 2>/dev/null ||
@@ -107,14 +98,14 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-echo "=== Step 9: Verify SOCKS5 proxy ==="
+echo "=== Step 8: Verify SOCKS5 proxy ==="
 if curl -s --connect-timeout 3 --socks5 127.0.0.1:7890 http://www.baidu.com/ -o /dev/null -w "SOCKS5 proxy: HTTP %{http_code}\n"; then
     echo "SOCKS5 proxy OK"
 else
     echo "SOCKS5 proxy NOT ready"
 fi
 
-echo "=== Step 10: Test curl ==="
+echo "=== Step 9: Test curl ==="
 HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 http://ipinfo.io/ || echo "000")
 if ! [ "$HTTP" -ge 200 ] 2>/dev/null || [ "$HTTP" -ge 300 ]; then
     ADDR=$(defaults read io.github.baoliandeng.macos externalControllerAddr 2>/dev/null || true)
