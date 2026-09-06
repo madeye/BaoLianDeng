@@ -267,6 +267,40 @@ struct MergeSubscriptionTests {
         #expect(merged.components(separatedBy: "dns:").count - 1 == 1)
     }
 
+    @Test("A provider with an inline http health-check survives the merge")
+    func subscriptionProviderWithInlineHealthCheck() throws {
+        let sub = """
+        proxies: []
+        proxy-providers:
+          good:
+            type: http
+            url: https://example.com/sub.yaml
+            path: ./providers/good.yaml
+            interval: 3600
+            health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}
+        proxy-groups:
+          - name: Auto
+            type: url-test
+            use: [good]
+            url: http://www.gstatic.com/generate_204
+            interval: 300
+        rules:
+          - MATCH,Auto
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let dict = try #require((try? Yams.load(yaml: merged)) as? [String: Any], "merged must parse:\n\(merged)")
+        let providers = try #require(dict["proxy-providers"] as? [String: Any], "providers section missing:\n\(merged)")
+        let good = try #require(providers["good"] as? [String: Any], "provider dropped:\n\(merged)")
+        #expect(good["url"] as? String == "https://example.com/sub.yaml")
+        #expect(good["interval"] as? Int == 0)
+        #expect((good["health-check"] as? [String: Any])?["url"] as? String == "http://www.gstatic.com/generate_204")
+        #expect((good["health-check"] as? [String: Any])?["interval"] as? Int == 300)
+        let groups = try #require(dict["proxy-groups"] as? [[String: Any]])
+        #expect(groups.contains { $0["name"] as? String == "Auto" && $0["use"] as? [String] == ["good"] })
+    }
+
     @Test("Falls back to default rules when subscription has none")
     func fallsBackToDefaultRules() {
         let sub = """
@@ -849,6 +883,33 @@ struct ForceManagedDNSTests {
         #expect(dns["enhanced-mode"] as? String == "fake-ip")
         #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
     }
+
+    @Test("Multi-line flow dns whose entries sit at column 0 is followed to its closer")
+    func columnZeroFlowContinuation() throws {
+        var config = """
+        dns: {
+        enable: true,
+        nameserver: [1.1.1.1], # "brace }" inside a comment must not close it
+        fallback: ["8.8.8.8"]
+        }
+        proxies: []
+        rules:
+          - MATCH,DIRECT
+        """
+        #expect((try? Yams.load(yaml: config)) != nil, "input must be valid YAML")
+        ConfigManager.forceManagedDNS(&config)
+        let dns = try #require(dnsMapping(config), "must stay parseable:\n\(config)")
+        #expect(dns["enhanced-mode"] as? String == "fake-ip")
+        #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
+        #expect(dns["fallback"] as? [String] == ["8.8.8.8"])
+        let dict = (try? Yams.load(yaml: config)) as? [String: Any]
+        #expect(dict?["rules"] as? [String] == ["MATCH,DIRECT"])
+        #expect(dict?["proxies"] is [Any])
+        let again = config
+        var repeated = config
+        ConfigManager.forceManagedDNS(&repeated)
+        #expect(repeated == again)
+    }
 }
 
 @Suite("Proxy group serialization")
@@ -1006,6 +1067,55 @@ struct ProxyGroupSerializationTests {
         #expect(health?["interval"] as? Int == 60)
         #expect(after[0]["exclude-type"] as? [String] == ["ss", "vmess"])
         #expect(after[0]["proxies"] as? [String] == ["a"])
+    }
+
+    @Test("Non-ASCII and long extra scalars are re-emitted verbatim, not escaped or folded")
+    func unicodeExtraFieldsStayReadable() throws {
+        let long = String(repeating: "abcdefghij ", count: 12).trimmingCharacters(in: .whitespaces)
+        let yaml = """
+        proxy-groups:
+          - name: 香港
+            type: url-test
+            use: [机场]
+            filter: "(?i)香港|HK|Hong Kong"
+            exclude-filter: "\(long)"
+        """
+        var groups = ConfigManager.shared.parseProxyGroups(from: yaml)
+        groups[0].interval = 300
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: yaml)
+        #expect(rewritten.contains("filter: \"(?i)香港|HK|Hong Kong\""))
+        #expect(rewritten.contains("use: [机场]") || rewritten.contains("- 机场"))
+        #expect(!rewritten.contains("\\u"))
+        #expect(rewritten.contains("exclude-filter: \"\(long)\""))
+        let after = groupDicts(rewritten)
+        #expect(after[0]["filter"] as? String == "(?i)香港|HK|Hong Kong")
+        #expect(after[0]["exclude-filter"] as? String == long)
+        #expect(after[0]["use"] as? [String] == ["机场"])
+    }
+
+    @Test("A null url is dropped rather than re-emitted as the string \"null\"")
+    func nullModelledScalarIsOmitted() {
+        let yaml = """
+        proxy-groups:
+          - name: A
+            type: select
+            proxies: [DIRECT]
+            url: null
+          - name: B
+            type: select
+            proxies: [DIRECT]
+            url: ~
+          - name: C
+            type: select
+            proxies: [DIRECT]
+            url:
+        """
+        let groups = ConfigManager.shared.parseProxyGroups(from: yaml)
+        #expect(groups.map(\.url) == [nil, nil, nil])
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: yaml)
+        #expect(!rewritten.contains("null"))
+        #expect(!rewritten.contains("url:"))
+        #expect(groupDicts(rewritten).count == 3)
     }
 
     @Test("Groups built in the editor still serialize an empty proxies list")
@@ -1332,6 +1442,115 @@ struct SanitizeProvidersTests {
         let result = ConfigManager.sanitizeProviders(section)
         #expect(!result.contains("file://"))
         #expect(result.hasPrefix("proxy-providers:"))
+    }
+
+    @Test("A quoted provider name does not hide an inline provider from the checks")
+    func sanitizesQuotedKeyInlineProvider() {
+        let section = """
+        proxy-providers:
+          "leak": {type: http, url: 'file:///etc/hosts', path: ./x.yaml}
+          'leak2': {type: http, url: "http://evil/sub", path: ./y.yaml}
+          "ok # not a comment": {type: http, url: "https://example.com/sub", path: ../z.yaml}
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(!result.contains("file://"))
+        #expect(!result.contains("evil"))
+        #expect(!result.contains("../"))
+        #expect(result.contains("example.com/sub"))
+        #expect(result.contains("ok # not a comment"))
+    }
+
+    static let providerWithInlineHealthCheck = """
+    proxy-providers:
+      good:
+        type: http
+        url: https://example.com/sub.yaml
+        path: ./providers/good.yaml
+        interval: 3600
+        health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}
+        header: {User-Agent: [clash.meta], X-Note: ["http://not-a-provider-url"]}
+    """
+
+    @Test("A nested http health-check url does not get a block provider dropped")
+    func keepsProviderWithInlineHealthCheck() throws {
+        let result = ConfigManager.sanitizeProviders(Self.providerWithInlineHealthCheck)
+        let dict = try #require((try? Yams.load(yaml: result)) as? [String: Any], "must parse:\n\(result)")
+        let providers = try #require(dict["proxy-providers"] as? [String: Any])
+        let good = try #require(providers["good"] as? [String: Any], "provider must survive:\n\(result)")
+        #expect(good["url"] as? String == "https://example.com/sub.yaml")
+        #expect(good["path"] as? String == "./providers/good.yaml")
+        let health = try #require(good["health-check"] as? [String: Any])
+        #expect(health["enable"] as? Bool == true)
+        #expect(health["url"] as? String == "http://www.gstatic.com/generate_204")
+        #expect(health["interval"] as? Int == 300)
+        let header = try #require(good["header"] as? [String: Any])
+        #expect(header["User-Agent"] as? [String] == ["clash.meta"])
+    }
+
+    @Test("A block-style nested health-check url is not mistaken for the provider url either")
+    func keepsProviderWithBlockHealthCheck() throws {
+        let section = """
+        proxy-providers:
+          good:
+            type: http
+            url: https://example.com/sub.yaml
+            path: ./providers/good.yaml
+            health-check:
+              enable: true
+              url: http://www.gstatic.com/generate_204
+              interval: 300
+          bad:
+            type: http
+            url: http://evil.com/sub.yaml
+            path: ./providers/bad.yaml
+            health-check:
+              url: https://looks-fine.example/generate_204
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        // Block-style sections pass through verbatim.
+        #expect(result.contains("      url: http://www.gstatic.com/generate_204"))
+        #expect(result.contains("  good:"))
+        #expect(!result.contains("bad:"))
+        #expect(!result.contains("evil.com"))
+        #expect(!result.contains("looks-fine"))
+    }
+
+    @Test("A fully inline provider with a nested http health-check survives")
+    func keepsInlineProviderWithNestedHealthCheck() throws {
+        let section = """
+        proxy-providers:
+          good: {type: http, url: "https://example.com/sub.yaml", path: ./providers/good.yaml, health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}}
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        let dict = try #require((try? Yams.load(yaml: result)) as? [String: Any], "must parse:\n\(result)")
+        let providers = try #require(dict["proxy-providers"] as? [String: Any])
+        let good = try #require(providers["good"] as? [String: Any], "provider must survive:\n\(result)")
+        #expect((good["health-check"] as? [String: Any])?["url"] as? String == "http://www.gstatic.com/generate_204")
+    }
+
+    @Test("disableProviderRefresh zeroes only the provider's own interval")
+    func refreshDisableLeavesNestedInterval() throws {
+        let sanitized = ConfigManager.sanitizeProviders(Self.providerWithInlineHealthCheck)
+        let result = ConfigManager.disableProviderRefresh(sanitized)
+        let dict = try #require((try? Yams.load(yaml: result)) as? [String: Any], "must parse:\n\(result)")
+        let good = try #require((dict["proxy-providers"] as? [String: Any])?["good"] as? [String: Any])
+        #expect(good["interval"] as? Int == 0)
+        #expect((good["health-check"] as? [String: Any])?["interval"] as? Int == 300)
+
+        let block = """
+        rule-providers:
+          r:
+            type: http
+            url: https://example.com/r.yaml
+            path: ./r.yaml
+            interval: 86400
+            health-check:
+              interval: 60
+        """
+        let blockResult = ConfigManager.disableProviderRefresh(block)
+        #expect(blockResult.contains("    interval: 0"))
+        #expect(blockResult.contains("      interval: 60"))
+        #expect(!blockResult.contains("86400"))
     }
 }
 

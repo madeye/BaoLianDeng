@@ -22,7 +22,10 @@ struct ConfigEditorView: View {
     /// Snapshot taken by `reparseConfig()`. While the structured editor
     /// still matches it, `configText` is used as-is instead of being
     /// regenerated from the model, so an untouched config keeps its
-    /// comments and formatting byte-for-byte.
+    /// comments and formatting byte-for-byte. The comparison deliberately
+    /// includes each item's `id`: both sides come from the same parse, so
+    /// identity equality is exact, and a removed-then-re-added group
+    /// counts as an edit.
     @State private var parsedProxyGroups: [EditableProxyGroup] = []
     @State private var parsedRules: [EditableRule] = []
     @State private var subscriptionText = ""
