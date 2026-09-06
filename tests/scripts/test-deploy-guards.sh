@@ -20,9 +20,16 @@
 #
 #   1. xcodebuild_logged returns xcodebuild's own exit status (65), not the
 #      exit status of whatever consumed its output.
-#   2. build_and_install_app itself returns non-zero on a failed build.
+#   2. build_and_install_app itself returns that exact propagated status (65)
+#      on a failed build — checked with a *structurally complete stale
+#      bundle* already sitting at the DerivedData glob location, so a
+#      mutant that drops the exit-status check would actually install that
+#      stale bundle (and return 0) instead of failing harmlessly at "built
+#      app not found". Asserting the precise status, not just "non-zero",
+#      is what makes this catch that mutant.
 #   3. A previously-installed app is left completely untouched — same
-#      content, never removed — when the build fails.
+#      content (still its OLD marker, not the stale build's), never
+#      removed — when the build fails.
 #   4. No rm/cp/mv invocation ever targeted the installed app path during
 #      that failed run.
 #   5. install_app_bundle rejects an incomplete bundle (missing appex)
@@ -121,7 +128,25 @@ fi
 # ---------------------------------------------------------------------------
 # Tests 2-4: call build_and_install_app itself — the exact function
 # dev-deploy.sh/release-deploy.sh call — against the failing xcodebuild stub.
+#
+# Crucially, a *structurally complete stale bundle* is pre-seeded at the
+# DerivedData glob location before this runs. This is the realistic failure
+# mode the finding describes (a late-phase failure — codesign, embed, etc. —
+# after xcodebuild has already assembled a .app on disk) and it is also what
+# makes this test actually exercise the exit-status check: without a stale
+# bundle at the glob, a mutant that deletes the `build_status -ne 0` guard
+# would still fail harmlessly at install_app_bundle's "built app not found"
+# check, satisfying the old (weaker) assertions for the wrong reason. With a
+# complete stale bundle present, that mutant instead installs the stale
+# bundle over the working install and returns 0 — so asserting the exact
+# propagated exit status (65, not just "non-zero") and that the install still
+# has its OLD marker (not the STALE one) genuinely guards the fix.
 # ---------------------------------------------------------------------------
+
+STALE_APP="${DERIVED_DATA_ROOT}/BaoLianDeng-stalebuild/Build/Products/Debug/BaoLianDeng.app"
+mkdir -p "${STALE_APP}/Contents/MacOS" "${STALE_APP}/Contents/PlugIns/TransparentProxy.appex"
+echo "STALE-BINARY-MARKER" >"${STALE_APP}/Contents/MacOS/BaoLianDeng"
+echo "<plist/>" >"${STALE_APP}/Contents/Info.plist"
 
 : >"$TRACE_LOG"
 
@@ -130,16 +155,16 @@ build_and_install_app "$BUILT_APP_GLOB" "$APP_PATH" 3 \
   "Contents/PlugIns/TransparentProxy.appex" -- \
   "${xcodebuild_args[@]}" || BAI_STATUS=$?
 
-if [ "$BAI_STATUS" -ne 0 ]; then
-  pass "build_and_install_app returned non-zero (${BAI_STATUS}) after a failed build"
+if [ "$BAI_STATUS" -eq 65 ]; then
+  pass "build_and_install_app propagated xcodebuild's exit status (65) after a failed build"
 else
-  fail "build_and_install_app returned success despite a failed build"
+  fail "expected build_and_install_app to return 65 after a failed build, got ${BAI_STATUS}"
 fi
 
 if [ -f "${APP_PATH}/Contents/MacOS/BaoLianDeng" ] &&
   [ "$(cat "${APP_PATH}/Contents/MacOS/BaoLianDeng")" = "OLD-BINARY-MARKER" ] &&
   [ -d "${APP_PATH}/Contents/PlugIns/TransparentProxy.appex" ]; then
-  pass "installed app is untouched after a failed build"
+  pass "installed app is untouched (still OLD-BINARY-MARKER, not the stale build) after a failed build"
 else
   fail "installed app was modified or removed after a failed build"
 fi
@@ -149,6 +174,12 @@ if [ -s "$TRACE_LOG" ] && grep -q -- "$APP_PATH" "$TRACE_LOG"; then
 else
   pass "no rm/cp/mv command ever referenced the installed app path during the failed run"
 fi
+
+# Remove the stale build fixture so it can never satisfy BUILT_APP_GLOB
+# (a "BaoLianDeng-*" wildcard) in later tests — leaving it in place would
+# make the glob match two directories once test 6 creates its own build
+# product, breaking that unrelated assertion.
+rm -rf "$STALE_APP"
 
 # ---------------------------------------------------------------------------
 # Test 5: install_app_bundle itself refuses an incomplete bundle (missing
