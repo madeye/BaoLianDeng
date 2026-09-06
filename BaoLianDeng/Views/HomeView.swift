@@ -383,10 +383,11 @@ struct HomeView: View {
             subscriptions = result.subs
             if let id = result.selectedID {
                 selectedSubscriptionID = id
-                if let sub = result.subs.first(where: { $0.id == id }),
-                   let raw = sub.rawContent {
-                    try? ConfigManager.shared.applySubscriptionConfig(raw)
-                }
+                // The selected subscription was merged into config.yaml when
+                // it was selected/fetched; re-applying it on every launch
+                // would wipe the edits the Config Editor saved since. Only
+                // a missing file is (re)built here.
+                try? ConfigManager.shared.ensureBaseConfig()
             }
             fetchNewSubscriptions()
         }

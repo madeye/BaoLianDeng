@@ -4,6 +4,7 @@
 
 import Foundation
 import Testing
+import Yams
 @testable import BaoLianDeng
 
 // MARK: - YAML Section Extraction
@@ -1429,5 +1430,242 @@ struct BundledGeodataTests {
             let size = try #require(attributes[.size] as? NSNumber)
             #expect(size.intValue > 0)
         }
+    }
+}
+
+// MARK: - Effective config (issue #113)
+
+/// Regression coverage for madeye/BaoLianDeng#113: startup must run the
+/// user's saved `config.yaml`, not a rebuilt default / subscription merge.
+@Suite("buildEffectiveConfig")
+struct BuildEffectiveConfigTests {
+
+    /// A base the Config Editor could have saved: custom proxy, custom rule,
+    /// and a user-chosen DNS nameserver list.
+    static let editedBase = """
+    mixed-port: 0
+    mode: rule
+    log-level: info
+    allow-lan: false
+    bind-address: 127.0.0.1
+    external-controller: 127.0.0.1:0
+
+    geo-auto-update: false
+
+    dns:
+      enable: true
+      listen: 127.0.0.1:0
+      enhanced-mode: fake-ip
+      fake-ip-range: 28.0.0.0/8
+      nameserver:
+        - https://my.custom.dns/dns-query
+
+    proxies:
+      - {name: my-ss, type: ss, server: 10.9.8.7, port: 8388, cipher: aes-128-gcm, password: pw}
+
+    proxy-groups:
+      - name: PROXY
+        type: select
+        proxies:
+          - my-ss
+          - DIRECT
+
+    rules:
+      - DOMAIN-SUFFIX,my-custom-domain.example,PROXY
+      - MATCH,DIRECT
+    """
+
+    private func build(
+        _ base: String,
+        engineMode: EngineMode = .vpn,
+        logLevel: String? = nil,
+        proxyMode: String = "rule",
+        lan: LANSharingSettings = LANSharingSettings(),
+        localProxyPort: UInt16 = 7890
+    ) -> String {
+        ConfigManager.buildEffectiveConfig(
+            base: base, engineMode: engineMode,
+            settings: EngineRuntimeSettings(
+                logLevel: logLevel, proxyMode: proxyMode,
+                lanSharing: lan, localProxyPort: localProxyPort
+            )
+        )
+    }
+
+    @Test("Custom proxies, rules and DNS from the saved base survive (no subscription)")
+    func keepsUserEditsWithoutSubscription() {
+        let effective = build(Self.editedBase)
+        #expect(effective.contains("name: my-ss"))
+        #expect(effective.contains("DOMAIN-SUFFIX,my-custom-domain.example,PROXY"))
+        #expect(effective.contains("https://my.custom.dns/dns-query"))
+        // The built-in default rule set must not have been substituted in.
+        #expect(!effective.contains("DOMAIN-SUFFIX,google.com,PROXY"))
+        #expect(!effective.contains("MATCH,PROXY"))
+    }
+
+    @Test("Edits made on top of a merged subscription survive reconnect")
+    func keepsUserEditsOnTopOfSubscription() {
+        let sub = """
+        proxies:
+          - {name: sub-node, type: vless, server: 1.2.3.4, port: 443, uuid: u}
+        proxy-groups:
+          - name: Proxies
+            type: select
+            proxies:
+              - sub-node
+        rules:
+          - DOMAIN-SUFFIX,example.com,Proxies
+          - MATCH,DIRECT
+        """
+        let defaultCfg = ConfigManager.shared.defaultConfig()
+        // Selecting the subscription merges it INTO config.yaml …
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: defaultCfg, defaultConfig: defaultCfg
+        )
+        // … and the user then adds a rule and a nameserver in the editor.
+        var edited = merged.replacingOccurrences(
+            of: "  - DOMAIN-SUFFIX,example.com,Proxies",
+            with: "  - DOMAIN-KEYWORD,user-added,Proxies\n  - DOMAIN-SUFFIX,example.com,Proxies"
+        )
+        edited = edited.replacingOccurrences(
+            of: "  nameserver:\n",
+            with: "  nameserver:\n    - tls://user.dns.example\n"
+        )
+        #expect(edited.contains("DOMAIN-KEYWORD,user-added,Proxies"))
+        #expect(edited.contains("tls://user.dns.example"))
+
+        let effective = build(edited)
+        #expect(effective.contains("name: sub-node"))
+        #expect(effective.contains("DOMAIN-KEYWORD,user-added,Proxies"))
+        #expect(effective.contains("DOMAIN-SUFFIX,example.com,Proxies"))
+        #expect(effective.contains("tls://user.dns.example"))
+    }
+
+    @Test("Runtime settings are layered on without touching user sections")
+    func appliesRuntimeSettings() {
+        let lan = LANSharingSettings()
+        let effective = build(
+            Self.editedBase, logLevel: "debug", proxyMode: "global", lan: lan
+        )
+        #expect(effective.contains("log-level: debug"))
+        #expect(effective.contains("mode: global"))
+        #expect(effective.contains("allow-lan: false"))
+        #expect(effective.contains("name: my-ss"))
+
+        var lanOn = LANSharingSettings()
+        lanOn.enabled = true
+        lanOn.proxyPort = 17890
+        let shared = build(Self.editedBase, lan: lanOn)
+        #expect(shared.contains("allow-lan: true"))
+        #expect(shared.contains("bind-address: 0.0.0.0"))
+        #expect(shared.contains("mixed-port: 17890"))
+
+        let local = build(Self.editedBase, engineMode: .localProxy, localProxyPort: 7891)
+        #expect(local.contains("mixed-port: 7891"))
+    }
+
+    @Test("Engine-mode DNS invariants are re-applied to a base saved in the other mode")
+    func reappliesDNSInvariantsForCurrentMode() {
+        // editedBase was saved while in VPN mode (fake-ip).
+        let local = build(Self.editedBase, engineMode: .localProxy)
+        #expect(local.contains("enhanced-mode: redir-host"))
+        #expect(!local.contains("fake-ip-range"))
+        #expect(local.contains("https://my.custom.dns/dns-query"))
+
+        let vpn = build(Self.editedBase, engineMode: .vpn)
+        #expect(vpn.contains("enhanced-mode: fake-ip"))
+        #expect(vpn.contains("fake-ip-range: 28.0.0.0/8"))
+    }
+
+    @Test("Sanitizer invariants hold on the effective config")
+    func sanitizerInvariants() throws {
+        let base = """
+        mode: rule
+        tun:
+          enable: true
+        geo-auto-update: true
+        subscriptions:
+          - url: https://example.com/sub
+        proxies: []
+        proxy-groups:
+          - name: PROXY
+            type: select
+            proxies:
+              - DIRECT
+        rules:
+          - MATCH,PROXY
+        """
+        let effective = build(base)
+        let parsed = try #require(try Yams.load(yaml: effective) as? [String: Any])
+        let tun = try #require(parsed["tun"] as? [String: Any])
+        #expect(tun["enable"] as? Bool == false)
+        #expect(effective.contains("geo-auto-update: false"))
+        #expect(!effective.contains("subscriptions:"))
+        // No dns: block in the base → the managed fallback is inserted.
+        #expect(effective.contains("enhanced-mode: fake-ip"))
+    }
+
+    @Test("A PROXY group is injected when the base's rules dangle on it")
+    func injectsProxyFallback() {
+        let base = """
+        mode: rule
+        proxies:
+          - {name: n1, type: ss, server: 1.1.1.1, port: 1, cipher: aes-128-gcm, password: p}
+        rules:
+          - MATCH,PROXY
+        """
+        let effective = build(base)
+        let groups = ConfigManager.shared.parseProxyGroups(from: effective)
+        #expect(groups.contains { $0.name == "PROXY" })
+    }
+}
+
+@Suite("Local proxy runtime directory")
+struct RuntimeDirectoryTests {
+
+    @Test("Preparing the runtime directory never rewrites the saved config.yaml")
+    func doesNotClobberSavedConfig() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("bld-runtime-test-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("mihomo", isDirectory: true)
+        let runtimeDir = configDir.appendingPathComponent("runtime", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let saved = "# user's saved config\nmode: rule\nproxies: []\n"
+        let savedURL = configDir.appendingPathComponent(AppConstants.configFileName)
+        try saved.write(to: savedURL, atomically: true, encoding: .utf8)
+
+        // A stand-in geodata file (any size) should get linked in beside the
+        // derived YAML.
+        let geoName = "\(ConfigManager.geodataFiles[0].name).\(ConfigManager.geodataFiles[0].ext)"
+        try Data("geo".utf8).write(to: configDir.appendingPathComponent(geoName))
+
+        let derived = "mode: global\nlog-level: debug\nproxies: []\n"
+        try ConfigManager.prepareRuntimeDirectory(
+            at: runtimeDir, geodataDir: configDir, runtimeYAML: derived
+        )
+
+        #expect(try String(contentsOf: savedURL, encoding: .utf8) == saved)
+        let runtimeConfig = runtimeDir.appendingPathComponent(AppConstants.configFileName)
+        #expect(try String(contentsOf: runtimeConfig, encoding: .utf8) == derived)
+        #expect(FileManager.default.fileExists(atPath: runtimeDir.appendingPathComponent(geoName).path))
+
+        // Re-preparing (next start) replaces the derived file and re-links
+        // geodata without erroring on the existing entries.
+        try Data("geo-v2".utf8).write(to: configDir.appendingPathComponent(geoName))
+        try ConfigManager.prepareRuntimeDirectory(
+            at: runtimeDir, geodataDir: configDir, runtimeYAML: derived + "allow-lan: true\n"
+        )
+        #expect(try String(contentsOf: savedURL, encoding: .utf8) == saved)
+        #expect(try Data(contentsOf: runtimeDir.appendingPathComponent(geoName)) == Data("geo-v2".utf8))
+    }
+
+    @Test("Runtime directory is a child of the config directory, distinct from config.yaml")
+    func runtimeDirectoryLayout() throws {
+        let configDir = try #require(ConfigManager.shared.configDirectoryURL)
+        let runtimeDir = try #require(ConfigManager.shared.runtimeDirectoryURL)
+        #expect(runtimeDir.deletingLastPathComponent().standardizedFileURL == configDir.standardizedFileURL)
+        #expect(runtimeDir.appendingPathComponent(AppConstants.configFileName) != ConfigManager.shared.configFileURL)
     }
 }
