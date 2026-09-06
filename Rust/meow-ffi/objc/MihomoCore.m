@@ -4,6 +4,7 @@
 // C FFI declarations (from the Rust staticlib)
 extern void bridge_set_home_dir(const char *dir);
 extern int32_t bridge_set_log_file(const char *path);
+extern int32_t bridge_trim_log_file(int32_t max_lines);
 extern int32_t bridge_start_with_ports(int32_t socks_port, int32_t dns_port, const char *controller_addr, const char *secret);
 extern int32_t bridge_get_socks_port(void);
 extern int32_t bridge_get_dns_port(void);
@@ -36,6 +37,15 @@ void BridgeSetHomeDir(NSString * _Nullable dir) {
 
 void BridgeSetLogFile(NSString * _Nullable path) {
     bridge_set_log_file([path UTF8String]);
+}
+
+BOOL BridgeTrimLogFile(int32_t maxLines, NSError * _Nullable * _Nullable error) {
+    int32_t rc = bridge_trim_log_file(maxLines);
+    if (rc != 0) {
+        if (error) *error = makeError();
+        return NO;
+    }
+    return YES;
 }
 
 BOOL BridgeStartWithPorts(int32_t socksPort, int32_t dnsPort, NSString * _Nonnull controllerAddr, NSString * _Nullable secret, NSError * _Nullable * _Nullable error) {
