@@ -12,6 +12,10 @@
 #   ASC_ISSUER_ID    — App Store Connect issuer ID
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deploy-lib.sh
+source "${SCRIPT_DIR}/lib/deploy-lib.sh"
+
 PROJECT_DIR="/Volumes/DATA/workspace/BaoLianDeng"
 APP_NAME="BaoLianDeng"
 SCHEME="BaoLianDeng"
@@ -52,14 +56,21 @@ echo "=== Step 2: Archive ==="
 # Developer ID distribution requires the -systemextension variant of the
 # Network Extension entitlement (development and App Store profiles only
 # carry the unsuffixed value).
-xcodebuild archive \
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-archive.XXXXXX")"
+ARCHIVE_STATUS=0
+xcodebuild_logged "$BUILD_LOG" 3 archive \
   -project ${APP_NAME}.xcodeproj \
   -scheme "$SCHEME" \
   -configuration Release \
   -destination 'generic/platform=macOS' \
   -archivePath "$ARCHIVE_PATH" \
-  NE_PROVIDER_SUFFIX="-systemextension" \
-  | tail -3
+  NE_PROVIDER_SUFFIX="-systemextension" || ARCHIVE_STATUS=$?
+if [ "$ARCHIVE_STATUS" -ne 0 ]; then
+  echo "ERROR: xcodebuild archive failed (exit ${ARCHIVE_STATUS})"
+  echo "Full log: $BUILD_LOG"
+  exit "$ARCHIVE_STATUS"
+fi
+rm -f "$BUILD_LOG"
 
 echo "=== Step 2b: Prune app extension (Developer ID ships the sysext) ==="
 # Both provider packagings are embedded during the build. The default path
@@ -99,11 +110,18 @@ cat > "$EXPORT_PLIST" <<PLIST
 PLIST
 
 rm -rf "$EXPORT_PATH"
-xcodebuild -exportArchive \
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-export.XXXXXX")"
+EXPORT_STATUS=0
+xcodebuild_logged "$BUILD_LOG" 3 -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_PATH" \
-  -exportOptionsPlist "$EXPORT_PLIST" \
-  | tail -3
+  -exportOptionsPlist "$EXPORT_PLIST" || EXPORT_STATUS=$?
+if [ "$EXPORT_STATUS" -ne 0 ]; then
+  echo "ERROR: xcodebuild -exportArchive failed (exit ${EXPORT_STATUS})"
+  echo "Full log: $BUILD_LOG"
+  exit "$EXPORT_STATUS"
+fi
+rm -f "$BUILD_LOG"
 
 APP_PATH="${EXPORT_PATH}/${APP_NAME}.app"
 if [ ! -d "$APP_PATH" ]; then

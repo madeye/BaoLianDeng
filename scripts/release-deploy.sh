@@ -15,6 +15,10 @@
 # hash pin, so a build-number bump is not required for reload.
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deploy-lib.sh
+source "${SCRIPT_DIR}/lib/deploy-lib.sh"
+
 VPN_NAME="BaoLianDeng"
 APP_PATH="/Applications/BaoLianDeng.app"
 PROJECT_DIR="/Volumes/DATA/workspace/BaoLianDeng"
@@ -37,27 +41,23 @@ sleep 1
 echo "=== Step 3: Build framework ==="
 make framework
 
-echo "=== Step 4: Build app (Release) ==="
+echo "=== Step 4: Build and install app (Release) ==="
 rm -rf ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*
-xcodebuild build \
+# build_and_install_app validates and stages the freshly built bundle before
+# touching the installed app — a failed or incomplete build must never
+# remove a working install (issue #113 finding 3).
+if ! build_and_install_app \
+  '$HOME/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app' \
+  "$APP_PATH" 3 "Contents/PlugIns/TransparentProxy.appex" -- \
+  build \
   -project BaoLianDeng.xcodeproj \
   -scheme BaoLianDeng \
   -configuration Release \
-  -destination 'platform=macOS' 2>&1 | tail -3
-
-echo "=== Step 5: Install ==="
-rm -rf "$APP_PATH"
-cp -R ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Release/BaoLianDeng.app "$APP_PATH"
-if [ ! -d "$APP_PATH/Contents/PlugIns/TransparentProxy.appex" ]; then
-    echo "ERROR: TransparentProxy.appex missing from installed app"
+  -destination 'platform=macOS'; then
     exit 1
 fi
-# The Xcode project still embeds the Developer ID system-extension product.
-# Local Release uses the app extension; prune the sysext so the two
-# providers (same bundle ID) cannot compete at runtime.
-rm -rf "$APP_PATH/Contents/Library/SystemExtensions"
 
-echo "=== Step 6: Launch app ==="
+echo "=== Step 5: Launch app ==="
 # Sentinel makes VPNManager.start() after the NE manager is ready — more
 # reliable for an app-extension provider than scutil --nc, which can race
 # before the configuration is registered.
@@ -65,7 +65,7 @@ touch /tmp/.bld-autoconnect
 open "$APP_PATH"
 sleep 3
 
-echo "=== Step 7: Start VPN ==="
+echo "=== Step 6: Start VPN ==="
 scutil --nc start "$VPN_NAME" 2>/dev/null || true
 CONNECTED=0
 for i in $(seq 1 30); do
@@ -86,7 +86,7 @@ if [ "$CONNECTED" -eq 0 ]; then
     echo "WARNING: VPN did not report connected within 30s"
 fi
 
-echo "=== Step 8: Wait for tunnel + meow engine startup ==="
+echo "=== Step 7: Wait for tunnel + meow engine startup ==="
 LOG_FILE="$LOG_DIR/rust_bridge.log"
 for i in $(seq 1 30); do
     if grep -q "meow engine started" "$LOG_FILE" 2>/dev/null ||
@@ -98,14 +98,14 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-echo "=== Step 9: Verify SOCKS5 proxy ==="
+echo "=== Step 8: Verify SOCKS5 proxy ==="
 if curl -s --connect-timeout 3 --socks5 127.0.0.1:7890 http://www.baidu.com/ -o /dev/null -w "SOCKS5 proxy: HTTP %{http_code}\n"; then
     echo "SOCKS5 proxy OK"
 else
     echo "SOCKS5 proxy NOT ready"
 fi
 
-echo "=== Step 10: Test curl ==="
+echo "=== Step 9: Test curl ==="
 HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 http://ipinfo.io/ || echo "000")
 if ! [ "$HTTP" -ge 200 ] 2>/dev/null || [ "$HTTP" -ge 300 ]; then
     ADDR=$(defaults read io.github.baoliandeng.macos externalControllerAddr 2>/dev/null || true)
