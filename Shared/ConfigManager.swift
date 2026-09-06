@@ -32,8 +32,24 @@ final class ConfigManager {
         return containerPath.appendingPathComponent("BaoLianDeng/mihomo", isDirectory: true)
     }
 
+    /// The user's editable base configuration — the single authoritative
+    /// input to BOTH engine start paths (VPN provider and in-process local
+    /// proxy). See `loadBaseConfig` for how it composes with subscriptions.
     var configFileURL: URL? {
         configDirectoryURL?.appendingPathComponent(AppConstants.configFileName)
+    }
+
+    /// Directory the in-process engine (local proxy mode) runs from. It holds
+    /// the derived runtime YAML (`config.yaml` = base + user settings) plus
+    /// links to the shared geodata files. The engine only ever loads
+    /// `<home>/config.yaml`, so giving it its own home is what keeps startup
+    /// from overwriting `configFileURL` with a derived artifact. Files the
+    /// engine writes relative to its config — provider `path:` caches,
+    /// `selector-cache.json` — land here too, so local-proxy mode refetches
+    /// providers once on its first start after this directory appears
+    /// (saved group selections are replayed over REST, not read from disk).
+    var runtimeDirectoryURL: URL? {
+        configDirectoryURL?.appendingPathComponent("runtime", isDirectory: true)
     }
 
     func ensureConfigDirectory() throws {
@@ -193,6 +209,144 @@ final class ConfigManager {
     func configExists() -> Bool {
         guard let fileURL = configFileURL else { return false }
         return fileManager.fileExists(atPath: fileURL.path)
+    }
+
+    // MARK: - Base config (what the engine actually starts from)
+
+    /// How the saved local config and the selected subscription compose:
+    ///
+    /// `config.yaml` (`configFileURL`) is the one authoritative, editable
+    /// base. The selected subscription is merged INTO it — header kept from
+    /// the file (ports, and `dns:` unless the subscription ships its own
+    /// `dns:` block, which replaces it), proxies / proxy-groups / providers /
+    /// rules taken from the subscription — by `applySubscriptionConfig`,
+    /// which runs when a subscription is selected or (re)fetched. Between
+    /// those events the file is the user's: whatever the Config Editor
+    /// saved (custom proxies, rules, DNS nameservers, …) is exactly what
+    /// the next tunnel start or reload runs, with or without a selected
+    /// subscription. Startup therefore never re-merges the subscription;
+    /// doing so would replace the user's edits with the stored
+    /// `rawContent` (and, with no subscription, with the built-in
+    /// defaults). Refreshing a subscription still overwrites the merged
+    /// sections — that is the documented cost of the "merged into" model.
+    ///
+    /// Because startup never consults the selection, the file must be
+    /// detached explicitly when the selection goes away: deleting the
+    /// selected subscription, or selecting one whose content has not been
+    /// fetched yet, runs `clearSubscriptionConfig` (defaults' proxies /
+    /// groups / rules back, providers dropped, header kept) so the engine
+    /// cannot keep routing through nodes the UI no longer shows as selected.
+    /// The one deliberate divergence left is the editor's Reset Default +
+    /// Save: it puts the built-in defaults in the file while the Home tab
+    /// still shows the subscription as selected, until it is re-selected or
+    /// refreshed — the editor's Save is authoritative by design.
+    ///
+    /// Runtime-only settings (log level, routing mode, Allow LAN, the local
+    /// proxy port) and the engine-mode DNS invariants are layered on top by
+    /// `buildEffectiveConfig` at start time and are never written back here.
+    func loadBaseConfig() -> String {
+        try? ensureBaseConfig()
+        return (try? loadConfig()) ?? defaultConfig()
+    }
+
+    /// Create `config.yaml` when it does not exist yet. A fresh container
+    /// with a subscription already selected gets that subscription merged
+    /// onto the defaults, so the first start does not silently run on
+    /// built-in rules while the UI shows a selected subscription; otherwise
+    /// the built-in defaults are written. An existing file is left alone.
+    func ensureBaseConfig() throws {
+        if configExists() { return }
+        if applySelectedSubscription() { return }
+        try saveConfig(defaultConfig())
+    }
+
+    /// Layer runtime settings on top of the user's base config to produce
+    /// the YAML the engine starts from. Pure — the result is handed to the
+    /// provider (`providerConfiguration`) or written to the runtime
+    /// directory, never back to `configFileURL`.
+    ///
+    /// `sanitizeConfigString` re-runs here because the file was sanitized
+    /// for whichever engine mode was active when it was saved; the DNS
+    /// `enhanced-mode` / `fake-ip-range` invariants depend on the mode the
+    /// engine is about to start in. `ensureProxyGroupFallback` keeps a base
+    /// whose rules still target `PROXY` startable after the user removed or
+    /// renamed that group in the editor.
+    static func buildEffectiveConfig(
+        base: String, engineMode: EngineMode, settings: EngineRuntimeSettings
+    ) -> String {
+        var yaml = base
+        sanitizeConfigString(&yaml, engineMode: engineMode)
+        ensureProxyGroupFallback(&yaml)
+
+        if let logLevel = settings.logLevel {
+            yaml = replacingTopLevelScalar(in: yaml, key: "log-level", value: logLevel)
+        }
+        yaml = replacingTopLevelScalar(in: yaml, key: "mode", value: settings.proxyMode)
+        // The engine creates GLOBAL from the final MATCH target, preserving
+        // any explicitly declared GLOBAL and following per-group selections.
+
+        // Clash-compatible allow-lan: engine reads these from YAML (no FFI arg).
+        // When enabled, mixed-port is the LAN-facing listener; in local-proxy
+        // mode it usually equals the user-facing mixed port and merges into
+        // one 0.0.0.0 bind. DNS + external-controller stay loopback either way.
+        let lan = settings.lanSharing
+        yaml = replacingTopLevelScalar(
+            in: yaml, key: "allow-lan", value: lan.enabled ? "true" : "false"
+        )
+        if lan.enabled {
+            yaml = replacingTopLevelScalar(in: yaml, key: "bind-address", value: "0.0.0.0")
+            yaml = replacingTopLevelScalar(
+                in: yaml, key: "mixed-port", value: String(lan.effectiveProxyPort)
+            )
+        } else if engineMode == .localProxy {
+            // Document the local mixed port even without LAN; the bridge still
+            // forces the actual bind from the socks_port argument.
+            yaml = replacingTopLevelScalar(
+                in: yaml, key: "mixed-port", value: String(settings.localProxyPort)
+            )
+        }
+        return yaml
+    }
+
+    /// Prepare `runtimeDirectoryURL` for an in-process engine start: write
+    /// the derived `runtimeYAML` as its `config.yaml` and link the shared
+    /// geodata files in beside it. The user's `configFileURL` is not touched.
+    /// Returns the runtime directory to pass to `BridgeSetHomeDir`.
+    func prepareRuntimeDirectory(runtimeYAML: String) throws -> URL {
+        guard let configDir = configDirectoryURL, let runtimeDir = runtimeDirectoryURL else {
+            throw ConfigError.sharedContainerUnavailable
+        }
+        try ensureConfigDirectory()
+        ensureGeodataFiles(configDir: configDir.path)
+        try Self.prepareRuntimeDirectory(
+            at: runtimeDir, geodataDir: configDir, runtimeYAML: runtimeYAML
+        )
+        return runtimeDir
+    }
+
+    /// Filesystem half of `prepareRuntimeDirectory(runtimeYAML:)`, split out
+    /// so tests can point it at temporary directories. Geodata is hard-linked
+    /// (falling back to a copy) and re-linked on every start so a
+    /// re-downloaded database in `geodataDir` is picked up.
+    static func prepareRuntimeDirectory(at runtimeDir: URL, geodataDir: URL, runtimeYAML: String) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: runtimeDir, withIntermediateDirectories: true)
+        let runtimeConfig = runtimeDir.appendingPathComponent(AppConstants.configFileName)
+        try runtimeYAML.write(to: runtimeConfig, atomically: true, encoding: .utf8)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: runtimeConfig.path)
+
+        for file in geodataFiles {
+            let name = "\(file.name).\(file.ext)"
+            let src = geodataDir.appendingPathComponent(name)
+            let dst = runtimeDir.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: src.path) else { continue }
+            try? fileManager.removeItem(at: dst)
+            do {
+                try fileManager.linkItem(at: src, to: dst)
+            } catch {
+                try fileManager.copyItem(at: src, to: dst)
+            }
+        }
     }
 
     /// Save the desired mode to UserDefaults. The tunnel reads this on startup.
@@ -827,6 +981,39 @@ final class ConfigManager {
         }
     }
 
+    /// Detach the subscription from `config.yaml` — the inverse of
+    /// `applySubscriptionConfig`. Keeps the header (ports, `dns:` as the user
+    /// last saved it), puts the built-in default proxies / proxy-groups /
+    /// rules back, and drops any providers. Returns the YAML that was saved.
+    /// See `loadBaseConfig` for when this must run.
+    @discardableResult
+    func clearSubscriptionConfig() throws -> String {
+        let base = (try? loadConfig()) ?? defaultConfig()
+        let cleared = Self.clearingSubscription(
+            from: base, defaultConfig: defaultConfig(),
+            engineMode: EngineMode.load(from: AppConstants.sharedDefaults)
+        )
+        try saveConfig(cleared)
+        return cleared
+    }
+
+    /// Pure half of `clearSubscriptionConfig`: merges the defaults' own
+    /// proxies / proxy-groups / rules over `baseConfig` exactly as a
+    /// subscription would be, so the header (a user-edited `dns:` included)
+    /// survives and every subscription-owned section — providers included —
+    /// is gone. The default `dns:` is deliberately not part of the stub, so
+    /// unlike a real subscription it never replaces the user's DNS.
+    static func clearingSubscription(
+        from baseConfig: String, defaultConfig: String, engineMode: EngineMode = .vpn
+    ) -> String {
+        let keys = ["proxies", "proxy-groups", "rules"]
+        let stock = extractYAMLSections(from: defaultConfig, named: keys)
+        let stub = keys.compactMap { stock[$0] }.joined(separator: "\n\n")
+        return mergeSubscription(
+            stub, baseConfig: baseConfig, defaultConfig: defaultConfig, engineMode: engineMode
+        )
+    }
+
     /// Off-main wrapper for `validateSubscriptionConfig`. SwiftUI views are
     /// MainActor, so a plain `Task {}` in a view runs on the main thread —
     /// and validation is synchronous engine work plus (worst case) bounded
@@ -868,8 +1055,12 @@ final class ConfigManager {
         return err?.localizedDescription
     }
 
-    /// Merge subscription YAML: take proxies, proxy-groups, rules, and their providers from subscription.
-    private func mergeSubscription(_ yaml: String) -> String {
+    /// Merge subscription YAML into the saved base without writing anything:
+    /// take proxies, proxy-groups, rules, and their providers from the
+    /// subscription, the header from `config.yaml`. `applySubscriptionConfig`
+    /// is this plus `saveConfig`; the Config Editor uses the unsaved form to
+    /// render the read-only subscription view.
+    func mergeSubscription(_ yaml: String) -> String {
         let base = (try? loadConfig()) ?? defaultConfig()
         return ConfigManager.mergeSubscription(
             yaml, baseConfig: base, defaultConfig: defaultConfig(),
@@ -1189,7 +1380,7 @@ final class ConfigManager {
         // mixed-port / dns.listen / external-controller values below are
         // placeholders only — the bridge forces SOCKS/DNS/API ports at
         // runtime. allow-lan / bind-address / mixed-port are rewritten by
-        // VPNManager.buildEffectiveConfigYAML from LANSharingSettings.
+        // ConfigManager.buildEffectiveConfig from LANSharingSettings.
         return """
         mixed-port: 0
         mode: rule
@@ -1278,6 +1469,27 @@ final class ConfigManager {
           # Catch-all
           - MATCH,PROXY
         """
+    }
+}
+
+// MARK: - Engine runtime settings
+
+/// Per-start settings layered onto the saved base config by
+/// `ConfigManager.buildEffectiveConfig`. Read from UserDefaults at start
+/// time; never written into `config.yaml`.
+struct EngineRuntimeSettings {
+    var logLevel: String?
+    var proxyMode: String = "rule"
+    var lanSharing: LANSharingSettings = LANSharingSettings()
+    var localProxyPort: UInt16 = UInt16(AppConstants.defaultLocalProxyPort)
+
+    static func load(from defaults: UserDefaults = AppConstants.sharedDefaults) -> EngineRuntimeSettings {
+        EngineRuntimeSettings(
+            logLevel: defaults.string(forKey: "logLevel"),
+            proxyMode: defaults.string(forKey: "proxyMode") ?? "rule",
+            lanSharing: LANSharingSettings.load(from: defaults),
+            localProxyPort: AppConstants.localProxyPort
+        )
     }
 }
 

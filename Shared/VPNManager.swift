@@ -435,16 +435,13 @@ final class VPNManager: NSObject, ObservableObject {
             }
         }
 
-        // Ensure config exists before starting
-        if !ConfigManager.shared.configExists() {
-            do {
-                let defaultConfig = ConfigManager.shared.defaultConfig()
-                try ConfigManager.shared.saveConfig(defaultConfig)
-            } catch {
-                isProcessing = false
-                errorMessage = "Failed to create default config: \(error.localizedDescription)"
-                return
-            }
+        // Ensure the editable base config exists before starting
+        do {
+            try ConfigManager.shared.ensureBaseConfig()
+        } catch {
+            isProcessing = false
+            errorMessage = "Failed to create default config: \(error.localizedDescription)"
+            return
         }
 
         // Pass subscription URL and settings to the extension via providerConfiguration
@@ -478,16 +475,13 @@ final class VPNManager: NSObject, ObservableObject {
         isProcessing = true
         errorMessage = nil
 
-        // Ensure config exists before starting (same as the tunnel path)
-        if !ConfigManager.shared.configExists() {
-            do {
-                let defaultConfig = ConfigManager.shared.defaultConfig()
-                try ConfigManager.shared.saveConfig(defaultConfig)
-            } catch {
-                isProcessing = false
-                errorMessage = "Failed to create default config: \(error.localizedDescription)"
-                return
-            }
+        // Ensure the editable base config exists before starting (same as the tunnel path)
+        do {
+            try ConfigManager.shared.ensureBaseConfig()
+        } catch {
+            isProcessing = false
+            errorMessage = "Failed to create default config: \(error.localizedDescription)"
+            return
         }
 
         let yaml = buildEffectiveConfigYAML()
@@ -674,78 +668,33 @@ final class VPNManager: NSObject, ObservableObject {
         }.resume()
     }
 
-    /// Build the full effective YAML config: base + selected subscription +
-    /// user settings (log level and routing mode).
+    /// Build the full effective YAML config the engine starts from: the
+    /// user's saved `config.yaml` (into which the selected subscription was
+    /// merged when it was selected — see `ConfigManager.loadBaseConfig`)
+    /// plus runtime settings (log level, routing mode, Allow LAN).
     /// Shared by the tunnel path (compressed into providerConfiguration) and
-    /// the local proxy path (written straight to disk).
+    /// the local proxy path (written to the engine's runtime directory).
+    ///
+    /// The subscription is deliberately NOT re-merged here: the saved file
+    /// already contains it, and re-merging from the stored `rawContent`
+    /// would discard every edit the Config Editor saved on top of it.
+    ///
+    /// No group rewriting here either. The engine starts each Selector group
+    /// on the config's own first member and `replaySavedGroupSelections()`
+    /// pushes the user's per-group choices once the controller is up. The
+    /// old `applySelectedNode()` rewrite was both wrong (one global node
+    /// forced into every group) and lossy: it round-tripped proxy-groups
+    /// through the editable parser, which drops `use:`, `filter:`, `lazy:`
+    /// and friends, emptying provider-backed groups.
     private func buildEffectiveConfigYAML() -> String {
-        let defaults = AppConstants.sharedDefaults
-
-        // Start with the base config
-        var yaml = ConfigManager.shared.defaultConfig()
-
-        // Merge selected subscription if available
-        if let idString = defaults.string(forKey: "selectedSubscriptionID"),
-           let data = defaults.data(forKey: "subscriptions") {
-            struct Sub: Decodable { var id: UUID; var rawContent: String? }
-            if let subs = try? JSONDecoder().decode([Sub].self, from: data),
-               let selectedID = UUID(uuidString: idString),
-               let selected = subs.first(where: { $0.id == selectedID }),
-               let raw = selected.rawContent {
-                yaml = ConfigManager.mergeSubscription(
-                    raw, baseConfig: yaml, defaultConfig: yaml, engineMode: engineMode
-                )
-            }
-        }
-
-        // No group rewriting here. The engine starts each Selector group on
-        // the config's own first member and `replaySavedGroupSelections()`
-        // pushes the user's per-group choices once the controller is up. The
-        // old `applySelectedNode()` rewrite was both wrong (one global node
-        // forced into every group) and lossy: it round-tripped proxy-groups
-        // through the editable parser, which drops `use:`, `filter:`, `lazy:`
-        // and friends, emptying provider-backed groups.
-
-        // Apply user settings
-        if let logLevel = defaults.string(forKey: "logLevel") {
-            yaml = ConfigManager.replacingTopLevelScalar(
-                in: yaml, key: "log-level", value: logLevel
-            )
-        }
-        let mode = defaults.string(forKey: "proxyMode") ?? "rule"
-        yaml = ConfigManager.replacingTopLevelScalar(
-            in: yaml, key: "mode", value: mode
+        ConfigManager.buildEffectiveConfig(
+            base: ConfigManager.shared.loadBaseConfig(),
+            engineMode: engineMode,
+            settings: EngineRuntimeSettings.load(from: AppConstants.sharedDefaults)
         )
-        // The engine creates GLOBAL from the final MATCH target, preserving
-        // any explicitly declared GLOBAL and following per-group selections.
-
-        // Clash-compatible allow-lan: engine reads these from YAML (no FFI arg).
-        // When enabled, mixed-port is the LAN-facing listener; in local-proxy
-        // mode it usually equals the user-facing mixed port and merges into
-        // one 0.0.0.0 bind. DNS + external-controller stay loopback either way.
-        let lan = LANSharingSettings.load(from: defaults)
-        yaml = ConfigManager.replacingTopLevelScalar(
-            in: yaml, key: "allow-lan", value: lan.enabled ? "true" : "false"
-        )
-        if lan.enabled {
-            yaml = ConfigManager.replacingTopLevelScalar(
-                in: yaml, key: "bind-address", value: "0.0.0.0"
-            )
-            yaml = ConfigManager.replacingTopLevelScalar(
-                in: yaml, key: "mixed-port", value: String(lan.effectiveProxyPort)
-            )
-        } else if engineMode == .localProxy {
-            // Document the local mixed port even without LAN; the bridge still
-            // forces the actual bind from the socks_port argument.
-            yaml = ConfigManager.replacingTopLevelScalar(
-                in: yaml, key: "mixed-port", value: String(AppConstants.localProxyPort)
-            )
-        }
-
-        return yaml
     }
 
-    /// Build the full YAML config (base + subscription + user settings),
+    /// Build the full YAML config (saved base + user settings),
     /// zlib-compress it, and pass via providerConfiguration to overcome the 512 KB IPC limit.
     private func passSettingsToProvider() {
         guard let proto = manager?.protocolConfiguration as? NETunnelProviderProtocol else { return }

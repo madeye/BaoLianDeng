@@ -8,7 +8,7 @@ import Foundation
 /// Clash-compatible `allow-lan: true`, `bind-address: 0.0.0.0`, and
 /// `mixed-port: <proxyPort>` so other devices on the local network can use
 /// this Mac as their SOCKS5/HTTP proxy. Stored as JSON in shared UserDefaults;
-/// applied in `VPNManager.buildEffectiveConfigYAML` (no separate FFI path).
+/// applied in `ConfigManager.buildEffectiveConfig` (no separate FFI path).
 struct LANSharingSettings: Codable, Equatable {
     static let defaultProxyPort = 7890
 

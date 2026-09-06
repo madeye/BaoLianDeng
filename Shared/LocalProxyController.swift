@@ -42,7 +42,12 @@ final class LocalProxyController {
         }
     }
 
-    /// Write `configYAML` to the config directory and start the engine.
+    /// Write `configYAML` (the derived effective config) to the engine's
+    /// runtime directory and start the engine from there. The user's saved
+    /// `config.yaml` is never written on this path — it is the editable
+    /// base that `configYAML` was derived from, so overwriting it would turn
+    /// runtime-only settings into "saved" edits and, worse, replace whatever
+    /// the user saved with whatever this start happened to compute.
     /// Blocking (engine startup + geodata check) — call off the main thread.
     func start(configYAML: String) throws {
         guard !isRunning else { return }
@@ -50,15 +55,9 @@ final class LocalProxyController {
         guard let configDirURL = ConfigManager.shared.configDirectoryURL else {
             throw LocalProxyError.configDirectoryUnavailable
         }
-        let configDir = configDirURL.path
-        try FileManager.default.createDirectory(
-            atPath: configDir, withIntermediateDirectories: true
-        )
-        try configYAML.write(
-            toFile: configDir + "/" + AppConstants.configFileName,
-            atomically: true, encoding: .utf8
-        )
-        ConfigManager.shared.sanitizeConfig()
+        // `configYAML` comes already sanitized for this engine mode from
+        // `ConfigManager.buildEffectiveConfig`; nothing on disk needs patching.
+        let runtimeDir = try ConfigManager.shared.prepareRuntimeDirectory(runtimeYAML: configYAML)
 
         let defaults = AppConstants.sharedDefaults
         let port = AppConstants.localProxyPort
@@ -74,8 +73,10 @@ final class LocalProxyController {
 
         let logDir = configDirURL.deletingLastPathComponent()
         BridgeSetLogFile(logDir.appendingPathComponent("rust_bridge.log").path)
-        ConfigManager.shared.ensureGeodataFiles(configDir: configDir)
-        BridgeSetHomeDir(configDir)
+        // The engine loads `<home>/config.yaml` and pins geodata paths to
+        // `<home>`; both live in the runtime dir (geodata is linked in from
+        // the config dir by `prepareRuntimeDirectory`).
+        BridgeSetHomeDir(runtimeDir.path)
 
         let controllerAddr = "127.0.0.1:\(ctrlPort)"
         let secret = AppConstants.generateControllerSecret() ?? ""
