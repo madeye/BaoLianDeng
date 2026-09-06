@@ -345,6 +345,25 @@ struct HomeView: View {
                 loadProxyGroups()
             }
         } else {
+            // Nothing to merge yet (the fetch re-selects once it lands).
+            // config.yaml still carries the previously selected
+            // subscription, so detach it rather than keep running its nodes
+            // behind a UI that shows this one as selected.
+            detachSubscriptionConfig()
+        }
+    }
+
+    /// Put the built-in defaults back into `config.yaml` and restart. Startup
+    /// runs the saved file as-is and never consults the selection (see
+    /// `ConfigManager.loadBaseConfig`), so whenever the selection goes away
+    /// the merged sections have to be cleared here explicitly — otherwise the
+    /// engine keeps routing through a subscription the UI no longer shows.
+    private func detachSubscriptionConfig() {
+        Task {
+            _ = await Task.detached {
+                try? ConfigManager.shared.clearSubscriptionConfig()
+            }.value
+            await Self.applyConfigByRestartingTunnel()
             loadProxyGroups()
         }
     }
@@ -511,6 +530,7 @@ struct HomeView: View {
     }
 
     private func deleteSubscription(at offsets: IndexSet) {
+        var deletedSelected = false
         for i in offsets {
             // Forget this subscription's per-group selections, so re-adding it
             // later starts from the config's own defaults.
@@ -520,9 +540,13 @@ struct HomeView: View {
             AppConstants.sharedDefaults
                 .removeObject(forKey: "selectedSubscriptionID")
             proxyGroupsVM.reloadSelectionsForActiveSubscription()
+            deletedSelected = true
         }
         subscriptions.remove(atOffsets: offsets)
         saveSubscriptions()
+        if deletedSelected {
+            detachSubscriptionConfig()
+        }
     }
 
     private func refreshSubscription(_ sub: inout Subscription) {
