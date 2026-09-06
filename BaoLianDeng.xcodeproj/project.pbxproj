@@ -61,6 +61,10 @@
 		B10209 /* VPNToolbarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10208 /* VPNToolbarContent.swift */; };
 		B10400A /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
 		B10400B /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
+		I113T0002 /* TCPRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = I113T0001 /* TCPRelay.swift */; };
+		I113T0003 /* TCPRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = I113T0001 /* TCPRelay.swift */; };
+		I113T0004 /* TCPRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = I113T0001 /* TCPRelay.swift */; };
+		I113T0011 /* TCPRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = I113T0010 /* TCPRelayTests.swift */; };
 		C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
 		C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
 		CEE9200E5015BA697A46FD4A /* TransparentProxy.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* TransparentProxy.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -208,6 +212,8 @@
 		B10206 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		B10208 /* VPNToolbarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNToolbarContent.swift; sourceTree = "<group>"; };
 		B10400 /* SOCKS5Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOCKS5Client.swift; sourceTree = "<group>"; };
+		I113T0001 /* TCPRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPRelay.swift; sourceTree = "<group>"; };
+		I113T0010 /* TCPRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPRelayTests.swift; sourceTree = "<group>"; };
 		EEB4B615F35B5B3D01F6349F /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		T10007 /* PerAppProxySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettingsTests.swift; sourceTree = "<group>"; };
 		T10010 /* BaoLianDengTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BaoLianDengTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -341,6 +347,7 @@
 				B10020 /* TransparentProxyProvider.swift */,
 				B10021 /* UDPNATRelay.swift */,
 				B10400 /* SOCKS5Client.swift */,
+				I113T0001 /* TCPRelay.swift */,
 			);
 			path = TransparentProxy;
 			sourceTree = "<group>";
@@ -442,6 +449,7 @@
 				T10040 /* ProxyEngineIntegrationTests.swift */,
 				T10052 /* ProxyGroupsViewModelTests.swift */,
 				PGS10004 /* ProxyGroupSelectionsTests.swift */,
+				I113T0010 /* TCPRelayTests.swift */,
 			);
 			path = BaoLianDengTests;
 			sourceTree = "<group>";
@@ -647,6 +655,7 @@
 				A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */,
 				LS100004 /* LANSharingSection.swift in Sources */,
 				B10400B /* SOCKS5Client.swift in Sources */,
+				I113T0002 /* TCPRelay.swift in Sources */,
 				B10201 /* SubscriptionModels.swift in Sources */,
 				B10203 /* NodeRow.swift in Sources */,
 				B10205 /* MainContentView.swift in Sources */,
@@ -662,6 +671,7 @@
 				9EAAFF911784E9AE012953A3 /* TransparentProxyProvider.swift in Sources */,
 				A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */,
 				B10400A /* SOCKS5Client.swift in Sources */,
+				I113T0003 /* TCPRelay.swift in Sources */,
 				F0MAIN0001 /* main.swift in Sources */,
 				EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */,
 				9C1CFB15DEC224B8210EA2E9 /* Constants.swift in Sources */,
@@ -681,6 +691,7 @@
 				AX10020 /* TransparentProxyProvider.swift in Sources */,
 				AX10021 /* UDPNATRelay.swift in Sources */,
 				AX10022 /* SOCKS5Client.swift in Sources */,
+				I113T0004 /* TCPRelay.swift in Sources */,
 				AX10023 /* AppLogger.swift in Sources */,
 				AX10024 /* Constants.swift in Sources */,
 				AX10025 /* ConfigManager.swift in Sources */,
@@ -704,6 +715,7 @@
 				T10041 /* ProxyEngineIntegrationTests.swift in Sources */,
 				T10053 /* ProxyGroupsViewModelTests.swift in Sources */,
 				PGS10005 /* ProxyGroupSelectionsTests.swift in Sources */,
+				I113T0011 /* TCPRelayTests.swift in Sources */,
 				T10045 /* TestConfigs.swift in Sources */,
 				T10047 /* ProxyEngineHelper.swift in Sources */,
 			);
