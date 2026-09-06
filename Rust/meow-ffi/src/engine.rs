@@ -2,15 +2,22 @@
 //!
 //! meow-rs exposes no stop/lifecycle API (its `run()` spawns bare
 //! `tokio::spawn` tasks and blocks on a signal), so this module hand-rolls the
-//! wiring and keeps every `JoinHandle` for abort-on-stop. The caller-supplied
-//! SOCKS/DNS/controller endpoints are forced onto the parsed config before any
-//! listener starts, ignoring whatever ports the YAML declared — except
-//! Clash-compatible `allow-lan` / `bind-address` / `mixed-port`, which control
-//! whether a LAN-facing mixed listener is also exposed.
+//! wiring. Every engine generation runs on its **own** tokio runtime, owned by
+//! [`EngineState`]: the kernel detaches work with bare `tokio::spawn` all over
+//! the place (each accepted connection in the mixed listener, url-test /
+//! fallback health-check loops, the UDP NAT sweeper, provider refreshers, DNS
+//! client tasks), none of which is reachable from the handful of top-level
+//! `JoinHandle`s we could keep. Shutting the runtime down is the only way to
+//! cancel *and* await all of it, so stop leaves nothing behind. The caller-
+//! supplied SOCKS/DNS/controller endpoints are forced onto the parsed config
+//! before any listener starts, ignoring whatever ports the YAML declared —
+//! except Clash-compatible `allow-lan` / `bind-address` / `mixed-port`, which
+//! control whether a LAN-facing mixed listener is also exposed.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::DashMap;
 use meow_api::log_stream::LogMessage;
@@ -22,23 +29,72 @@ use meow_dns::DnsServer;
 use meow_listener::{MixedListener, SnifferRuntime};
 use meow_tunnel::Tunnel;
 use parking_lot::RwLock;
+use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
-use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-/// Live engine instance. Dropping it (via [`crate` stop]) releases the tunnel
-/// and its statistics; the tokio runtime itself is process-global and reused.
+/// How long [`EngineState::shutdown`] waits for the generation's worker
+/// threads to wind down. Every task future is dropped as part of the shutdown
+/// regardless; the bound only caps the wait for a task stuck in a synchronous
+/// poll (or a `spawn_blocking` job), so stop can never hang the caller.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Live engine instance: one generation of tunnel + listeners + background
+/// tasks, all running on `runtime`. Tear it down with [`EngineState::shutdown`]
+/// — that cancels and awaits everything the generation spawned (accepted
+/// connections and health-check loops included) before releasing the tunnel.
 pub struct EngineState {
     pub tunnel: Tunnel,
-    pub handles: Vec<JoinHandle<()>>,
+    /// Runtime private to this generation. Every task the kernel spawned
+    /// while assembling and serving this engine lives here and dies with it.
+    pub runtime: Runtime,
     pub socks_port: i32,
     pub dns_port: i32,
     pub controller_addr: String,
 }
 
+impl EngineState {
+    /// Stop this generation: cancel every task on its runtime and wait
+    /// (bounded) for the worker threads to drop them. Returns the tunnel —
+    /// now quiescent, no relay or probe holds a clone any more — so the
+    /// caller can take its final traffic snapshot before dropping it (which
+    /// releases the statistics / NAT table / proxies with it).
+    ///
+    /// Waiting for a runtime from inside another runtime's context would
+    /// panic (tokio forbids blocking there). The bridge's C entry points are
+    /// always called from Swift's own threads, so that never happens in the
+    /// app; the guard just keeps a misuse from turning into a panic that
+    /// leaks the generation.
+    pub fn shutdown(self) -> Tunnel {
+        let EngineState {
+            tunnel, runtime, ..
+        } = self;
+        if tokio::runtime::Handle::try_current().is_ok() {
+            runtime.shutdown_background();
+        } else {
+            runtime.shutdown_timeout(SHUTDOWN_TIMEOUT);
+        }
+        tunnel
+    }
+}
+
+/// Build the runtime for one engine generation — 2 workers to stay lean
+/// under the Network Extension's ~15 MB memory ceiling.
+pub fn build_runtime() -> anyhow::Result<Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("meow-engine")
+        .enable_all()
+        .build()
+        .map_err(|e| anyhow::anyhow!("build engine runtime: {e}"))
+}
+
 /// Load `<config_path>`, force the runtime endpoints, and start the tunnel,
-/// DNS server, REST API, and mixed (SOCKS5+HTTP) listener on the shared
-/// runtime. Returns the assembled [`EngineState`] with all task handles.
+/// DNS server, REST API, and mixed (SOCKS5+HTTP) listener on the *current*
+/// runtime — the caller drives this future on the generation's own runtime
+/// (see [`build_runtime`]) so every task spawned below belongs to it.
+/// Returns the assembled [`EngineState`] (the runtime is attached by the
+/// caller, which owns it while this future runs).
 ///
 /// SOCKS / DNS / controller ports always bind loopback at the caller-supplied
 /// addresses (transparent-proxy and REST clients need stable, private
@@ -60,7 +116,7 @@ pub async fn assemble(
     dns_port: i32,
     controller_addr: String,
     secret: String,
-) -> anyhow::Result<EngineState> {
+) -> anyhow::Result<AssembledEngine> {
     clear_saved_global_selection(&home).await?;
     let mut config = load_config_pinned(&config_path, &home).await?;
 
@@ -191,16 +247,14 @@ pub async fn assemble(
     let sniffer = Arc::new(SnifferRuntime::new(config.sniffer));
     let auth = config.auth;
 
-    let mut handles: Vec<JoinHandle<()>> = Vec::new();
-
     // DNS UDP server (fake-ip pool and reverse mapping live inside the resolver).
     {
         let dns_server = DnsServer::new(resolver, dns_addr);
-        handles.push(tokio::spawn(async move {
+        tokio::spawn(async move {
             if let Err(e) = dns_server.run().await {
                 error!("DNS server error: {e}");
             }
-        }));
+        });
     }
 
     // REST API server. The /logs broadcast channel is created but not fed by a
@@ -219,11 +273,11 @@ pub async fn assemble(
             named_for_api,
             external_ui,
         );
-        handles.push(tokio::spawn(async move {
+        tokio::spawn(async move {
             if let Err(e) = api_server.run().await {
                 error!("API server error: {e}");
             }
-        }));
+        });
     }
 
     // Mixed (SOCKS5 + HTTP) listener(s) — primary (+ optional LAN) forced above.
@@ -237,11 +291,11 @@ pub async fn assemble(
             .with_sniffer(Arc::clone(&sniffer))
             .with_auth(Arc::clone(&auth))
             .with_max_connections(nl.max_connections);
-        handles.push(tokio::spawn(async move {
+        tokio::spawn(async move {
             if let Err(e) = listener.run().await {
                 error!("Listener error: {e}");
             }
-        }));
+        });
     }
 
     info!(
@@ -249,13 +303,34 @@ pub async fn assemble(
          allow_lan={allow_lan} lan_proxy={lan_proxy_port}"
     );
 
-    Ok(EngineState {
+    Ok(AssembledEngine {
         tunnel,
-        handles,
         socks_port,
         dns_port,
         controller_addr,
     })
+}
+
+/// Output of [`assemble`]: everything in [`EngineState`] except the runtime
+/// the caller was already holding while it drove the future.
+pub struct AssembledEngine {
+    pub tunnel: Tunnel,
+    pub socks_port: i32,
+    pub dns_port: i32,
+    pub controller_addr: String,
+}
+
+impl AssembledEngine {
+    /// Attach the runtime this engine was assembled on.
+    pub fn with_runtime(self, runtime: Runtime) -> EngineState {
+        EngineState {
+            tunnel: self.tunnel,
+            runtime,
+            socks_port: self.socks_port,
+            dns_port: self.dns_port,
+            controller_addr: self.controller_addr,
+        }
+    }
 }
 
 /// Resolve the LAN bind address from Clash-style `allow-lan` / `bind-address`.

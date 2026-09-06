@@ -97,10 +97,16 @@ enum SOCKS5Client {
         }
     }
 
-    static func readSome(connection: NWConnection) async throws -> Data {
-        let gate = OnceResume<Result<Data, Error>>()
+    /// One chunk from the connection. `isComplete` is set when the peer's
+    /// FIN arrived — possibly together with the last bytes (`data` non-empty
+    /// **and** `isComplete`), or on its own (`data` empty, `isComplete`).
+    /// Network.framework reports the FIN exactly once; a `receive` issued
+    /// after that fails with `ENODATA` instead of repeating `isComplete`, so
+    /// callers must not discard the flag when data accompanies it.
+    static func readSome(connection: NWConnection) async throws -> (data: Data, isComplete: Bool) {
+        let gate = OnceResume<Result<(data: Data, isComplete: Bool), Error>>()
         return try await withTaskCancellationHandler {
-            let result = await withCheckedContinuation { (cont: CheckedContinuation<Result<Data, Error>, Never>) in
+            let result = await withCheckedContinuation { (cont: CheckedContinuation<Result<(data: Data, isComplete: Bool), Error>, Never>) in
                 gate.arm(cont)
                 readSomeLoop(connection: connection, gate: gate)
             }
@@ -113,13 +119,12 @@ enum SOCKS5Client {
 
     /// Callback body for `readSome`, split out so the "no data yet" case can
     /// re-arm the receive instead of resolving the continuation (#75). Only
-    /// `isComplete` (remote closed) or an error end the stream; callers such
-    /// as `relayTCP` treat an empty `Data()` result as "connection closed,"
-    /// so returning empty for a healthy connection with nothing to deliver
-    /// yet would end the relay prematurely.
+    /// `isComplete` (remote closed) or an error end the stream; returning an
+    /// empty, not-complete chunk for a healthy connection with nothing to
+    /// deliver yet would make the relay see a false end-of-stream.
     private static func readSomeLoop(
         connection: NWConnection,
-        gate: OnceResume<Result<Data, Error>>
+        gate: OnceResume<Result<(data: Data, isComplete: Bool), Error>>
     ) {
         connection.receive(
             minimumIncompleteLength: 1,
@@ -128,10 +133,10 @@ enum SOCKS5Client {
             if let error = error {
                 gate.resume(.failure(error))
             } else if let data = data, !data.isEmpty {
-                gate.resume(.success(data))
+                gate.resume(.success((data, isComplete)))
             } else if isComplete {
                 // Genuine remote close / end-of-stream.
-                gate.resume(.success(Data()))
+                gate.resume(.success((Data(), true)))
             } else {
                 // No data, no error, not complete. `receive` with
                 // minimumIncompleteLength: 1 shouldn't invoke the callback in
