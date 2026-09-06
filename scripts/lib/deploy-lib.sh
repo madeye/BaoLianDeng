@@ -8,6 +8,12 @@
 # `xcodebuild` — so a failed build (e.g. exit 65) was silently treated as
 # success, and callers went on to `rm -rf` the previously-installed app
 # before copying in a missing/incomplete replacement.
+#
+# dev-deploy.sh and release-deploy.sh call `build_and_install_app` (below)
+# for their whole build+install sequence, rather than each re-implementing
+# the build/status-check/install control flow inline — that keeps the real
+# code path small enough for tests/scripts/test-deploy-guards.sh to exercise
+# directly instead of re-deriving it.
 
 # xcodebuild_logged <log_file> <tail_lines> <xcodebuild args...>
 #
@@ -62,7 +68,10 @@ install_app_bundle() {
   fi
 
   local staging
-  staging="$(mktemp -d "${TMPDIR:-/tmp}/${app_name}-stage.XXXXXX")"
+  staging="$(mktemp -d "${TMPDIR:-/tmp}/${app_name}-stage.XXXXXX")" || {
+    echo "ERROR: mktemp -d failed while staging the built app"
+    return 1
+  }
   if ! cp -R "$built_app" "${staging}/${app_name}.app"; then
     echo "ERROR: failed to stage built app"
     rm -rf "$staging"
@@ -95,6 +104,61 @@ install_app_bundle() {
   rm -rf "$staging"
   if [ -n "$backup" ]; then
     rm -rf "$backup"
+  fi
+  return 0
+}
+
+# build_and_install_app <built_app_glob> <install_path> <tail_lines> <required_plugin> -- <xcodebuild args...>
+#
+# The single code path dev-deploy.sh and release-deploy.sh use to turn an
+# `xcodebuild build` invocation into an installed app. Runs xcodebuild via
+# xcodebuild_logged (so a failed build reports its own exit status, never
+# tail's) and, on any build failure, returns that status immediately
+# *without touching <install_path>* — the previous install is left exactly
+# as it was. The log is kept (not deleted) on failure and its path is
+# printed, since the caller only ever sees the last <tail_lines> lines of
+# it. On a successful build, <built_app_glob> (a shell glob pattern — e.g.
+# one containing a DerivedData `BaoLianDeng-*` wildcard, which is why this
+# resolves it with `eval echo` rather than a literal path) is expanded to
+# the produced .app and installed via install_app_bundle, which validates
+# the bundle and stages the swap before ever removing a previous install.
+#
+# tests/scripts/test-deploy-guards.sh calls this exact function (with a
+# stub failing xcodebuild on PATH) to guard against a regression of issue
+# #113 finding 3 — the test exercises this real code path, not a
+# reimplementation of the scripts' control flow.
+build_and_install_app() {
+  local built_app_glob="$1"
+  shift
+  local install_path="$1"
+  shift
+  local tail_lines="$1"
+  shift
+  local required_plugin="$1"
+  shift
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
+
+  local build_log
+  build_log="$(mktemp "${TMPDIR:-/tmp}/BaoLianDeng-build.XXXXXX")" || {
+    echo "ERROR: mktemp failed while preparing the build log"
+    return 1
+  }
+  local build_status=0
+  xcodebuild_logged "$build_log" "$tail_lines" "$@" || build_status=$?
+  if [ "$build_status" -ne 0 ]; then
+    echo "ERROR: xcodebuild build failed (exit ${build_status}); leaving installed app untouched"
+    echo "Full log: $build_log"
+    return "$build_status"
+  fi
+  rm -f "$build_log"
+
+  local built_app
+  built_app=$(eval echo "$built_app_glob")
+  if ! install_app_bundle "$built_app" "$install_path" "$required_plugin"; then
+    echo "ERROR: install failed; any previously-installed app was left in place"
+    return 1
   fi
   return 0
 }

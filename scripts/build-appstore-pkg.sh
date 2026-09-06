@@ -64,7 +64,7 @@ echo "=== Step 1: Build framework ==="
 make framework
 
 echo "=== Step 2: Archive (App Store signing) ==="
-BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-archive.XXXXXX.log")"
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-archive.XXXXXX")"
 ARCHIVE_STATUS=0
 xcodebuild_logged "$BUILD_LOG" 3 archive \
   -project ${APP_NAME}.xcodeproj \
@@ -115,7 +115,7 @@ cat > "$EXPORT_PLIST" <<PLIST
 PLIST
 
 rm -rf "$EXPORT_PATH"
-BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-export.XXXXXX.log")"
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-export.XXXXXX")"
 EXPORT_STATUS=0
 xcodebuild_logged "$BUILD_LOG" 3 -exportArchive \
   -archivePath "$ARCHIVE_PATH" \

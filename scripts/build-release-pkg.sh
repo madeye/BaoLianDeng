@@ -56,7 +56,7 @@ echo "=== Step 2: Archive ==="
 # Developer ID distribution requires the -systemextension variant of the
 # Network Extension entitlement (development and App Store profiles only
 # carry the unsuffixed value).
-BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-archive.XXXXXX.log")"
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-archive.XXXXXX")"
 ARCHIVE_STATUS=0
 xcodebuild_logged "$BUILD_LOG" 3 archive \
   -project ${APP_NAME}.xcodeproj \
@@ -109,7 +109,7 @@ cat > "$EXPORT_PLIST" <<PLIST
 PLIST
 
 rm -rf "$EXPORT_PATH"
-BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-export.XXXXXX.log")"
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/${APP_NAME}-export.XXXXXX")"
 EXPORT_STATUS=0
 xcodebuild_logged "$BUILD_LOG" 3 -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
