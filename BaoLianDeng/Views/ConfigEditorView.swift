@@ -19,6 +19,12 @@ struct ConfigEditorView: View {
     @State private var configText = ""
     @State private var proxyGroups: [EditableProxyGroup] = []
     @State private var rules: [EditableRule] = []
+    /// Snapshot taken by `reparseConfig()`. While the structured editor
+    /// still matches it, `configText` is used as-is instead of being
+    /// regenerated from the model, so an untouched config keeps its
+    /// comments and formatting byte-for-byte.
+    @State private var parsedProxyGroups: [EditableProxyGroup] = []
+    @State private var parsedRules: [EditableRule] = []
     @State private var subscriptionText = ""
     @State private var subscriptionProxyGroups: [EditableProxyGroup] = []
     @State private var subscriptionRules: [EditableRule] = []
@@ -174,15 +180,24 @@ struct ConfigEditorView: View {
         from oldMode: EditorMode, to newMode: EditorMode
     ) {
         if oldMode == .structured && newMode == .raw {
-            var yaml = configText
-            yaml = ConfigManager.shared.updateProxyGroups(
-                proxyGroups, in: yaml
-            )
-            yaml = ConfigManager.shared.updateRules(rules, in: yaml)
-            configText = yaml
+            configText = structuredYAML()
         } else if oldMode == .raw && newMode == .structured {
             reparseConfig()
         }
+    }
+
+    /// `configText` with the structured editor's changes written back —
+    /// or `configText` untouched when nothing was edited since the last
+    /// parse, so the proxy-groups / rules sections are not rewritten.
+    private func structuredYAML() -> String {
+        var yaml = configText
+        if proxyGroups != parsedProxyGroups {
+            yaml = ConfigManager.shared.updateProxyGroups(proxyGroups, in: yaml)
+        }
+        if rules != parsedRules {
+            yaml = ConfigManager.shared.updateRules(rules, in: yaml)
+        }
+        return yaml
     }
 
     private func autoSaveRawConfig() {
@@ -235,12 +250,11 @@ struct ConfigEditorView: View {
                 try ConfigManager.shared.saveConfig(configText)
                 reparseConfig()
             } else {
-                var yaml = configText
-                yaml = ConfigManager.shared.updateProxyGroups(
-                    proxyGroups, in: yaml)
-                yaml = ConfigManager.shared.updateRules(rules, in: yaml)
+                let yaml = structuredYAML()
                 try ConfigManager.shared.saveConfig(yaml)
                 configText = yaml
+                parsedProxyGroups = proxyGroups
+                parsedRules = rules
             }
             showSavedToast()
             if vpnManager.isConnected {
@@ -272,6 +286,8 @@ struct ConfigEditorView: View {
         proxyGroups = ConfigManager.shared.parseProxyGroups(
             from: configText)
         rules = ConfigManager.shared.parseRules(from: configText)
+        parsedProxyGroups = proxyGroups
+        parsedRules = rules
     }
 
     private func showSavedToast() {
