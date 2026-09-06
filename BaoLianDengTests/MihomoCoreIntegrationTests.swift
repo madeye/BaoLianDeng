@@ -240,4 +240,104 @@ struct MihomoCoreIntegrationTests {
         BridgeValidateConfig(config, &err)
         #expect(err == nil, "Default config failed validation: \(err?.localizedDescription ?? "")")
     }
+
+    // MARK: - Issue #113: flow-style sections and structured group edits
+
+    @Test("Sanitized inline dns mapping is accepted by the engine")
+    func inlineDNSSanitizesToValidConfig() {
+        var config = """
+        proxies: []
+        proxy-groups: []
+        rules:
+          - MATCH,DIRECT
+        dns: {enable: true, nameserver: [1.1.1.1]}
+        """
+        ConfigManager.sanitizeConfigString(&config)
+        var err: NSError?
+        BridgeValidateConfig(config, &err)
+        #expect(err == nil, "sanitized inline dns rejected: \(err?.localizedDescription ?? "")\n\(config)")
+        #expect(config.contains("enhanced-mode: fake-ip"))
+        #expect(config.contains("1.1.1.1"))
+
+        // Repeated sanitization stays valid and stable.
+        let once = config
+        ConfigManager.sanitizeConfigString(&config)
+        #expect(config == once)
+        BridgeValidateConfig(config, &err)
+        #expect(err == nil)
+    }
+
+    @Test("Inline dns merged from a subscription validates")
+    func inlineSubscriptionDNSValidates() {
+        let sub = """
+        proxies: []
+        proxy-groups: []
+        rules:
+          - MATCH,DIRECT
+        dns: {enable: true, nameserver: [1.1.1.1]}
+        """
+        let defaultCfg = ConfigManager.shared.defaultConfig()
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: defaultCfg, defaultConfig: defaultCfg
+        )
+        var err: NSError?
+        BridgeValidateConfig(merged, &err)
+        #expect(err == nil, "merged inline dns rejected: \(err?.localizedDescription ?? "")\n\(merged)")
+    }
+
+    @Test("Structured round trip of groups with unmodelled fields stays engine-valid")
+    func structuredGroupRoundTripValidates() {
+        let config = """
+        mixed-port: 7890
+        mode: rule
+        proxies:
+          - name: node-a
+            type: ss
+            server: 1.2.3.4
+            port: 8388
+            cipher: aes-128-gcm
+            password: secret
+          - name: node-b
+            type: ss
+            server: 1.2.3.5
+            port: 8388
+            cipher: aes-128-gcm
+            password: secret
+        proxy-groups:
+          - name: Auto
+            type: url-test
+            proxies: [node-a, node-b]
+            url: http://www.gstatic.com/generate_204
+            interval: 300
+            tolerance: 50
+            lazy: true
+          - name: Balance
+            type: load-balance
+            strategy: consistent-hashing
+            proxies:
+              - node-a
+              - node-b
+          - name: PROXY
+            type: select
+            proxies:
+              - Auto
+              - Balance
+              - DIRECT
+        rules:
+          - MATCH,PROXY
+        """
+        var err: NSError?
+        BridgeValidateConfig(config, &err)
+        #expect(err == nil, "fixture must validate: \(err?.localizedDescription ?? "")")
+
+        var groups = ConfigManager.shared.parseProxyGroups(from: config)
+        #expect(groups[0].extraFields.map(\.key) == ["tolerance", "lazy"])
+        groups[2].proxies.append("REJECT")
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: config)
+        BridgeValidateConfig(rewritten, &err)
+        #expect(err == nil, "rewritten config rejected: \(err?.localizedDescription ?? "")\n\(rewritten)")
+        #expect(rewritten.contains("tolerance: 50"))
+        #expect(rewritten.contains("lazy: true"))
+        #expect(rewritten.contains("strategy: consistent-hashing"))
+    }
 }

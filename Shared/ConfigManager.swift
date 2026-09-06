@@ -418,7 +418,8 @@ final class ConfigManager {
     /// Patch the on-disk config.yaml to disable geo data downloads, which would
     /// block the Network Extension during startup. Safe to call on every launch.
     func sanitizeConfig() {
-        guard let yaml = try? loadConfig() else { return }
+        guard var yaml = try? loadConfig() else { return }
+        Self.normalizeFlowSection(&yaml, key: "tun")
         var lines = yaml.components(separatedBy: "\n")
         var hasGeoAutoUpdate = false
 
@@ -467,6 +468,9 @@ final class ConfigManager {
     static func sanitizeConfigString(_ config: inout String, engineMode: EngineMode = .vpn) {
         // Disable TUN and geo-auto-update — transparent proxy intercepts at
         // socket level, and geo downloads would block tunnel startup.
+        // An inline `tun: {enable: true}` has no `enable:` line to rewrite,
+        // so spell it out in block style first.
+        normalizeFlowSection(&config, key: "tun")
         var lines = config.components(separatedBy: "\n")
         var inTunBlock = false
         lines = lines.map { line in
@@ -544,6 +548,7 @@ final class ConfigManager {
     /// fallback, nameserver-policy, fake-ip-filter, and comments stay as
     /// the user or subscription wrote them.
     static func forceManagedDNS(_ config: inout String, engineMode: EngineMode = .vpn) {
+        normalizeFlowSection(&config, key: "dns")
         var lines = config.components(separatedBy: "\n")
         if let range = topLevelSectionRange(in: lines, key: "dns") {
             var section = Array(lines[range])
@@ -568,9 +573,96 @@ final class ConfigManager {
         config = lines.joined(separator: "\n")
     }
 
+    /// Rewrite the top-level `key:` section in block style when its header
+    /// carries an inline flow mapping — `dns: {enable: true, nameserver:
+    /// [1.1.1.1]}` — or, with `includingNested`, when any line inside it
+    /// opens one (`p: {type: http, url: …}`). The line-based patchers only
+    /// address block keys: `setSectionScalar` would push indented entries
+    /// under an inline mapping (invalid YAML), the tun scan never sees an
+    /// inline `enable:`, and `sanitizeProviders` cannot find `url:` /
+    /// `path:` inside a flow provider. Block-style sections pass through
+    /// untouched, so comments there stay put; a section that fails to
+    /// parse is left as-is for the engine to reject.
+    static func normalizeFlowSection(
+        _ config: inout String, key: String, includingNested: Bool = false
+    ) {
+        var lines = config.components(separatedBy: "\n")
+        guard let range = topLevelSectionRange(in: lines, key: key) else { return }
+        let opensFlow = { (line: String) in
+            opensFlowMapping(line.trimmingCharacters(in: .whitespaces))
+        }
+        guard opensFlow(lines[range.lowerBound])
+            || (includingNested && lines[range].dropFirst().contains(where: opensFlow))
+        else { return }
+
+        // Trailing blank and comment lines sit outside the mapping; keep
+        // them verbatim.
+        var end = range.upperBound
+        while end > range.lowerBound + 1 {
+            let trimmed = lines[end - 1].trimmingCharacters(in: .whitespaces)
+            guard trimmed.isEmpty || trimmed.hasPrefix("#") else { break }
+            end -= 1
+        }
+        let text = lines[range.lowerBound..<end].joined(separator: "\n")
+        guard let node = try? Yams.compose(yaml: text),
+              let root = node.mapping, root.count == 1,
+              let value = root[key]?.mapping else { return }
+        var block: [String]
+        if value.isEmpty {
+            // libyaml still emits an empty mapping as `{}`; a bare key
+            // lets the patchers add children under it.
+            block = ["\(key):"]
+        } else {
+            guard let text = try? Yams.serialize(
+                node: blockStyled(node), width: -1, allowUnicode: true
+            ) else { return }
+            block = text.components(separatedBy: "\n")
+            while block.last?.isEmpty == true { block.removeLast() }
+        }
+        lines.replaceSubrange(range.lowerBound..<end, with: block)
+        config = lines.joined(separator: "\n")
+    }
+
+    /// True for a `key: {…`, `"key": {…`, `- {…`, or bare `{…` line.
+    private static func opensFlowMapping(_ trimmed: String) -> Bool {
+        var rest = Substring(trimmed)
+        if rest.hasPrefix("-") {
+            rest = rest.dropFirst().drop { $0 == " " || $0 == "\t" }
+        }
+        if rest.hasPrefix("{") { return true }
+        guard let first = rest.first, first != "#" else { return false }
+        if first == "\"" || first == "'" {
+            // Quoted key: the colon we want follows the closing quote.
+            let (_, quote, after) = parseYAMLScalarWithComment(String(rest))
+            guard quote != nil else { return false }
+            rest = Substring(after)
+        }
+        guard let colon = rest.firstIndex(of: ":") else { return false }
+        let value = rest[rest.index(after: colon)...].drop { $0 == " " || $0 == "\t" }
+        return value.hasPrefix("{")
+    }
+
+    /// Copy of `node` with every mapping and sequence forced to block style.
+    /// Scalars keep their quoting; empty collections still emit as `{}`/`[]`.
+    private static func blockStyled(_ node: Yams.Node) -> Yams.Node {
+        switch node {
+        case .scalar, .alias:
+            return node
+        case .mapping(let mapping):
+            let pairs = mapping.map { ($0.key, blockStyled($0.value)) }
+            return .mapping(Yams.Node.Mapping(pairs, mapping.tag, .block))
+        case .sequence(let sequence):
+            return .sequence(Yams.Node.Sequence(sequence.map(blockStyled), sequence.tag, .block))
+        }
+    }
+
     /// Inclusive range of a top-level YAML mapping section named `key`.
     /// The range starts at `key:` and ends before the next top-level key
-    /// (comments and blanks stay with the section).
+    /// (comments, blanks, and a column-0 `}` / `]` closing a multi-line
+    /// flow collection stay with the section). A flow collection left open
+    /// on the `key:` line — `dns: {` with its entries on the following
+    /// lines, even at column 0 — is followed to its closing bracket first,
+    /// since YAML lets flow entries ignore indentation.
     private static func topLevelSectionRange(
         in lines: [String], key: String
     ) -> Range<Int>? {
@@ -578,17 +670,62 @@ final class ConfigManager {
             isYAMLKey($0.trimmingCharacters(in: .whitespaces), key)
                 && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
         }) else { return nil }
+        var first = start + 1
+        var depth = flowNestingDelta(of: lines[start])
+        while depth > 0 && first < lines.count {
+            depth += flowNestingDelta(of: lines[first])
+            first += 1
+        }
         var end = lines.count
-        for i in (start + 1)..<lines.count {
+        for i in first..<lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                && !trimmed.hasPrefix("}") && !trimmed.hasPrefix("]")
                 && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
                 end = i
                 break
             }
         }
         return start..<end
+    }
+
+    /// Net number of flow collections (`{` / `[`) opened minus closed on
+    /// `line`, ignoring brackets inside quoted scalars and after a `#`
+    /// comment. Positive means the line leaves a flow collection open.
+    private static func flowNestingDelta(of line: String) -> Int {
+        var delta = 0
+        var quote: Character?
+        var previous: Character = " "
+        var escaped = false
+        for character in line {
+            defer { previous = character }
+            if let open = quote {
+                if open == "\"" && escaped {
+                    escaped = false
+                } else if open == "\"" && character == "\\" {
+                    escaped = true
+                } else if character == open {
+                    quote = nil
+                }
+                continue
+            }
+            switch character {
+            case "#" where previous == " " || previous == "\t":
+                return delta
+            case "\"", "'":
+                // A quote opens a scalar only at a token boundary; an
+                // apostrophe inside a plain scalar (`it's`) is literal.
+                if " \t{[,:".contains(previous) { quote = character }
+            case "{", "[":
+                delta += 1
+            case "}", "]":
+                delta -= 1
+            default:
+                break
+            }
+        }
+        return delta
     }
 
     /// Replace or insert a top-level YAML section. `body` should start with
@@ -696,8 +833,11 @@ final class ConfigManager {
                 i += 1
                 continue
             }
+            // A `- item` at the key's own indent still belongs to it (YAML
+            // allows an unindented block sequence there, and the flow
+            // normalizer emits that shape).
             let indent = String(line.prefix { $0 == " " || $0 == "\t" })
-            guard indent.count > keyIndent.count, trimmed.hasPrefix("-") else { break }
+            guard indent.count >= keyIndent.count, trimmed.hasPrefix("-") else { break }
             let entry = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
             if isSelfReference(entry) {
                 drop.append(i)
@@ -899,12 +1039,14 @@ final class ConfigManager {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("subscriptions:")
                 && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
         }) else { return }
-        // Find end: next top-level key or end of file
+        // Find end: next top-level key or end of file (a column-0 `}` / `]`
+        // closing a multi-line flow value belongs to the section)
         var end = lines.count
         for i in (start + 1)..<lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
+            if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t")
+                && !trimmed.hasPrefix("}") && !trimmed.hasPrefix("]") {
                 end = i
                 break
             }
@@ -1192,15 +1334,20 @@ final class ConfigManager {
     }
 
     /// Set interval to 0 in provider sections so Mihomo won't auto-refresh subscription URLs.
+    /// Only each provider's own `interval:` is rewritten; a nested one
+    /// (`health-check: {interval: 300}`) is the provider's business.
     static func disableProviderRefresh(_ section: String) -> String {
-        section.components(separatedBy: "\n").map { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("interval:") {
+        guard let (header, blocks) = splitProviderBlocks(section) else { return section }
+        let rewritten = blocks.flatMap { block -> [String] in
+            let depth = providerChildIndent(of: block)
+            return block.map { line in
                 let indent = line.prefix(while: { $0 == " " || $0 == "\t" })
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard indent.count == depth, trimmed.hasPrefix("interval:") else { return line }
                 return indent + "interval: 0"
             }
-            return line
-        }.joined(separator: "\n")
+        }
+        return ([header] + rewritten).joined(separator: "\n")
     }
 
     /// Validate/sanitize subscription-controlled provider entries
@@ -1219,8 +1366,25 @@ final class ConfigManager {
     /// special-cases the `url:`/`path:` keys and otherwise passes provider
     /// blocks through untouched. Valid providers are preserved as-is.
     static func sanitizeProviders(_ section: String) -> String {
+        guard let (header, blocks) = splitProviderBlocks(section) else { return section }
+        let kept = blocks.compactMap { sanitizeProviderBlock($0) }
+        guard !kept.isEmpty else { return header }
+        return ([header] + kept.flatMap { $0 }).joined(separator: "\n")
+    }
+
+    /// Split a `proxy-providers:` / `rule-providers:` section into its
+    /// header line and one line group per provider entry (each starting
+    /// at the `name:` line). Flow-style entries are first re-emitted in
+    /// block style: `p: {type: http, url: file:///…}` keeps its `url:` /
+    /// `path:` off their own lines, which would let it slip past the
+    /// checks untouched. Nil when the section has no entries.
+    private static func splitProviderBlocks(_ section: String) -> (String, [[String]])? {
+        var section = section
+        if let key = mappingKeyName(section.components(separatedBy: "\n")[0]) {
+            normalizeFlowSection(&section, key: key, includingNested: true)
+        }
         var lines = section.components(separatedBy: "\n")
-        guard lines.count > 1 else { return section }
+        guard lines.count > 1 else { return nil }
         let header = lines.removeFirst()
 
         // The indentation of the first provider-name line (e.g. 2 spaces)
@@ -1229,7 +1393,7 @@ final class ConfigManager {
             .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
             .map({ line in line.prefix(while: { $0 == " " }).count })
         else {
-            return section
+            return nil
         }
 
         func isBlockStart(_ line: String) -> Bool {
@@ -1249,18 +1413,37 @@ final class ConfigManager {
             }
         }
         if !current.isEmpty { blocks.append(current) }
+        return (header, blocks)
+    }
 
-        let kept = blocks.compactMap { sanitizeProviderBlock($0) }
-        guard !kept.isEmpty else { return header }
-        return ([header] + kept.flatMap { $0 }).joined(separator: "\n")
+    /// Indentation of a provider entry's own keys: the first non-blank,
+    /// non-comment line after the `name:` line. Deeper lines belong to a
+    /// nested mapping such as `health-check:` or `header:`, whose `url:` /
+    /// `interval:` must not be mistaken for the provider's.
+    private static func providerChildIndent(of block: [String]) -> Int {
+        for line in block.dropFirst() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+            return line.prefix(while: { $0 == " " || $0 == "\t" }).count
+        }
+        return Int.max
     }
 
     /// Returns the (possibly rewritten) lines of a single provider block, or
-    /// nil if the whole block should be dropped (non-https `url:`).
+    /// nil if the whole block should be dropped (non-https `url:`). Only the
+    /// provider's first-level keys are inspected — `health-check: {url:
+    /// http://www.gstatic.com/generate_204}` is a probe target, not a
+    /// download URL, and must not get the provider dropped.
     private static func sanitizeProviderBlock(_ block: [String]) -> [String]? {
+        let depth = providerChildIndent(of: block)
         var result: [String] = []
         for line in block {
+            let indent = line.prefix { $0 == " " || $0 == "\t" }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard indent.count == depth else {
+                result.append(line)
+                continue
+            }
             if trimmed.hasPrefix("url:") {
                 let value = scalarValue(afterKey: "url", in: line)
                 guard value.lowercased().hasPrefix("https://") else { return nil }
@@ -1270,7 +1453,6 @@ final class ConfigManager {
             if trimmed.hasPrefix("path:") {
                 let value = scalarValue(afterKey: "path", in: line)
                 if value.contains("..") || value.hasPrefix("/") || value.hasPrefix("~") {
-                    let indent = line.prefix { $0 == " " || $0 == "\t" }
                     var safeName = (value as NSString).lastPathComponent
                         .replacingOccurrences(of: "..", with: "_")
                     if safeName.isEmpty || safeName == "/" {
@@ -1355,8 +1537,11 @@ final class ConfigManager {
             .replacingOccurrences(of: "\r", with: "\n")
 
         for line in normalized.components(separatedBy: "\n") {
+            // A column-0 `}` / `]` closes a multi-line flow collection and
+            // stays with the section it ends.
             let isTopLevel = !line.hasPrefix(" ") && !line.hasPrefix("\t")
                 && !line.isEmpty && !line.hasPrefix("-") && !line.hasPrefix("#")
+                && !line.hasPrefix("}") && !line.hasPrefix("]")
             if isTopLevel {
                 flush()
                 let key = String(line.prefix(while: { $0 != ":" }))
@@ -1495,16 +1680,42 @@ struct EngineRuntimeSettings {
 
 // MARK: - Editable Config Models
 
-struct EditableProxyGroup: Identifiable {
+struct EditableProxyGroup: Identifiable, Equatable {
     var id = UUID()
     var name: String
     var type: String
     var proxies: [String]
     var url: String?
     var interval: Int?
+    /// Group fields the structured editor does not model (`use`, `filter`,
+    /// `lazy`, `tolerance`, `include-all`, …), in source order. They are
+    /// re-emitted verbatim on save so a structured edit — or a mere
+    /// Structured → Raw switch — cannot strip provider-backed membership
+    /// or tuning options the editor never showed.
+    var extraFields: [ProxyGroupField] = []
+
+    /// Keys the structured editor maps onto dedicated properties. Anything
+    /// else lands in `extraFields`.
+    static let modelledKeys: Set<String> = ["name", "type", "proxies", "url", "interval"]
+
+    /// Whether the group's members come from somewhere other than
+    /// `proxies:` — a provider list or an include-all flag. Such a group
+    /// legitimately has no `proxies:` key, so none is synthesized for it.
+    var hasProviderMembership: Bool {
+        extraFields.contains {
+            ["use", "include-all", "include-all-proxies", "include-all-providers"].contains($0.key)
+        }
+    }
 }
 
-struct EditableRule: Identifiable {
+/// One unmodelled `key: value` pair of a proxy group, held as a parsed
+/// YAML node so nested lists and mappings survive the round trip.
+struct ProxyGroupField: Hashable {
+    var key: String
+    var value: Yams.Node
+}
+
+struct EditableRule: Identifiable, Equatable {
     var id = UUID()
     var type: String
     var value: String
@@ -1517,18 +1728,37 @@ struct EditableRule: Identifiable {
 extension ConfigManager {
 
     func parseProxyGroups(from yaml: String) -> [EditableProxyGroup] {
-        guard let dict = (try? Yams.load(yaml: yaml)) as? [String: Any],
-              let groupList = dict["proxy-groups"] as? [[String: Any]] else {
+        // Composed nodes (not `Yams.load`'s `[String: Any]`) so unmodelled
+        // fields keep their order, nesting, and scalar quoting for re-emit.
+        guard let root = try? Yams.compose(yaml: yaml),
+              let groupList = root["proxy-groups"]?.sequence else {
             return []
         }
         return groupList.compactMap { group -> EditableProxyGroup? in
-            guard let name = group["name"] as? String,
-                  let type = group["type"] as? String else { return nil }
-            let proxies = group["proxies"] as? [String] ?? []
-            let url = group["url"] as? String
-            let interval = group["interval"] as? Int
-            return EditableProxyGroup(name: name, type: type, proxies: proxies, url: url, interval: interval)
+            guard let mapping = group.mapping,
+                  let name = mapping["name"]?.string,
+                  let type = mapping["type"]?.string else { return nil }
+            let proxies = mapping["proxies"]?.sequence?.compactMap(\.string) ?? []
+            let url = Self.presentScalar(mapping["url"])?.string
+            let interval = mapping["interval"]?.int
+            let extras = mapping.compactMap { pair -> ProxyGroupField? in
+                guard let key = pair.key.string,
+                      !EditableProxyGroup.modelledKeys.contains(key) else { return nil }
+                return ProxyGroupField(key: key, value: pair.value)
+            }
+            return EditableProxyGroup(
+                name: name, type: type, proxies: proxies, url: url, interval: interval,
+                extraFields: extras
+            )
         }
+    }
+
+    /// `node`'s scalar unless it is a YAML null (`url: null`, `url: ~`,
+    /// or a bare `url:`), whose `Node.string` would still hand back the
+    /// raw text and re-emit it as the string `"null"`.
+    private static func presentScalar(_ node: Yams.Node?) -> Yams.Node.Scalar? {
+        guard let scalar = node?.scalar, NSNull.construct(from: scalar) == nil else { return nil }
+        return scalar
     }
 
     func parseRules(from yaml: String) -> [EditableRule] {
@@ -1576,7 +1806,8 @@ extension ConfigManager {
         while endIdx < lines.count {
             let line = lines[endIdx]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !line.hasPrefix(" ") && !line.hasPrefix("\t") && !trimmed.isEmpty && !trimmed.hasPrefix("#") {
+            if !line.hasPrefix(" ") && !line.hasPrefix("\t") && !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                && !trimmed.hasPrefix("}") && !trimmed.hasPrefix("]") {
                 break
             }
             endIdx += 1
@@ -1627,16 +1858,33 @@ extension ConfigManager {
             if let interval = group.interval {
                 result.append("    interval: \(interval)")
             }
-            if group.proxies.isEmpty {
-                result.append("    proxies: []")
-            } else {
+            if !group.proxies.isEmpty {
                 result.append("    proxies:")
                 for proxy in group.proxies {
                     result.append("      - \(Self.yamlQuotedString(proxy))")
                 }
+            } else if !group.hasProviderMembership {
+                result.append("    proxies: []")
+            }
+            for field in group.extraFields {
+                result.append(contentsOf: Self.serializeProxyGroupField(field))
             }
         }
         return result
+    }
+
+    /// Emit one unmodelled group field as indented YAML lines. The node is
+    /// serialized on its own (`use: [p]`, `filter: test`, a block list…)
+    /// and every line shifted under the group entry, which keeps nested
+    /// structure intact whatever its style.
+    private static func serializeProxyGroupField(_ field: ProxyGroupField) -> [String] {
+        let node = Yams.Node.mapping(Yams.Node.Mapping([(Yams.Node(field.key), field.value)]))
+        // Unlimited width and raw unicode: a `filter: "(?i)香港|HK"` regex
+        // must not come back as `\u9999\u6E2F` folded across lines.
+        guard let text = try? Yams.serialize(node: node, width: -1, allowUnicode: true) else { return [] }
+        var lines = text.components(separatedBy: "\n")
+        while lines.last?.isEmpty == true { lines.removeLast() }
+        return lines.map { "    " + $0 }
     }
 
     private func serializeRules(_ rules: [EditableRule]) -> [String] {
