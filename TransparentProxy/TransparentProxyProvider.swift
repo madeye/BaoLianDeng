@@ -797,9 +797,15 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private func trimLogFile() {
         logQueue.sync {
             trimLog(at: logURL)
-            let rustLogURL = logURL.deletingLastPathComponent()
-                .appendingPathComponent("rust_bridge.log")
-            trimLog(at: rustLogURL)
+            // rust_bridge.log is owned by the engine's log sink, which keeps
+            // an open append handle. Rewriting it here (atomic replace) would
+            // leave that handle on the unlinked old inode — new engine lines
+            // would vanish from the viewer while the orphan kept growing — so
+            // the engine trims and reopens it under its own writer lock.
+            var trimError: NSError?
+            if !BridgeTrimLogFile(Int32(Self.maxLogLines), &trimError) {
+                log("WARN: rust_bridge.log trim failed: \(trimError?.localizedDescription ?? "unknown")")
+            }
         }
     }
 

@@ -33,8 +33,13 @@ use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 
 // ---------------------------------------------------------------------------
-// Shared runtime (process-global, reused across start/stop — 2 workers to
-// stay lean under the NE ~15 MB memory ceiling).
+// Utility runtime (process-global; 2 workers to stay lean under the NE ~15 MB
+// memory ceiling). Used ONLY for config validation and the `bridge_test_*`
+// diagnostics. The engine itself never runs here: each engine generation owns
+// a private runtime inside `EngineState` (see engine.rs) so that stopping the
+// engine can cancel and await every task the kernel spawned, not just the
+// top-level ones — a shared, never-shut-down runtime would keep accepted
+// connections and health-check loops alive across stop/start.
 // ---------------------------------------------------------------------------
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -43,6 +48,7 @@ pub(crate) fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
+            .thread_name("meow-ffi-util")
             .enable_all()
             .build()
             .expect("failed to build tokio runtime")
@@ -190,6 +196,23 @@ pub unsafe extern "C" fn bridge_set_log_file(path: *const c_char) -> i32 {
                 set_error(e);
                 -1
             }
+        }
+    })
+}
+
+/// Keep only the last `max_lines` lines of the active log file, rotating it
+/// under the sink's own lock and reopening the handle (see
+/// `logging::trim_log_file`). Returns 0 on success (including the no-op cases:
+/// no log file set, file already within the cap), -1 with a last-error
+/// otherwise. Callers must use this instead of rewriting the file themselves:
+/// an external atomic replace leaves the sink writing to the unlinked inode.
+#[no_mangle]
+pub extern "C" fn bridge_trim_log_file(max_lines: i32) -> i32 {
+    guard(-1, || match logging::trim_log_file(max_lines as i64) {
+        Ok(()) => 0,
+        Err(e) => {
+            set_error(e);
+            -1
         }
     })
 }
@@ -384,7 +407,18 @@ pub unsafe extern "C" fn bridge_start_with_ports(
         // Publish the secret so in-process diagnostics can authenticate against
         // the controller; cleared again if start fails or on stop.
         *CONTROLLER_SECRET.lock() = Some(secret_s.clone());
-        match runtime().block_on(engine::assemble(
+        // A fresh runtime per generation: everything `assemble` (and the
+        // kernel underneath it) spawns lands here, so stop can tear it all
+        // down by shutting the runtime down.
+        let rt = match engine::build_runtime() {
+            Ok(rt) => rt,
+            Err(e) => {
+                *CONTROLLER_SECRET.lock() = None;
+                set_error(format!("start proxy: {e}"));
+                return -1;
+            }
+        };
+        match rt.block_on(engine::assemble(
             config_path,
             home,
             socks_port,
@@ -392,8 +426,8 @@ pub unsafe extern "C" fn bridge_start_with_ports(
             addr,
             secret_s,
         )) {
-            Ok(state) => {
-                *engine = Some(state);
+            Ok(assembled) => {
+                *engine = Some(assembled.with_runtime(rt));
                 0
             }
             Err(e) => {
@@ -402,6 +436,9 @@ pub unsafe extern "C" fn bridge_start_with_ports(
                 // failing (a listener bind error comes later); don't leave a
                 // hook pointing at a resolver whose engine never started.
                 meow_common::clear_host_resolver();
+                // Likewise it may have spawned some tasks (DNS server, API)
+                // before the failing step; they die with the runtime.
+                rt.shutdown_timeout(std::time::Duration::from_secs(2));
                 set_error(format!("start proxy: {e}"));
                 -1
             }
@@ -419,33 +456,23 @@ pub extern "C" fn bridge_stop_proxy() {
         // and leaving it installed would keep serving lookups (and pin the
         // old DNS cache) after `BridgeStopProxy`.
         meow_common::clear_host_resolver();
-        if let Some(mut state) = engine.take() {
+        if let Some(state) = engine.take() {
+            // Shut the generation's runtime down: this cancels AND awaits
+            // every task it ever spawned — listeners, each accepted
+            // connection's relay, url-test / fallback health-check loops,
+            // the NAT sweeper, DNS/API servers — so no session keeps flowing
+            // through a stopped engine, no probe keeps firing, and the
+            // listener sockets are released before we return (an immediate
+            // restart on the same ports must not race an "address in use").
+            // Bounded so a task stuck in a synchronous poll can't hang stop.
+            let tunnel = state.shutdown();
             // Fold the final traffic snapshot into the process-lifetime base
-            // before dropping the engine (and its per-instance Statistics).
-            let (up, down) = state.tunnel.statistics().snapshot();
+            // only now, after every relay has stopped counting, then drop
+            // the tunnel (and its per-instance Statistics).
+            let (up, down) = tunnel.statistics().snapshot();
             TRAFFIC_UP_BASE.fetch_add(up, Ordering::Relaxed);
             TRAFFIC_DOWN_BASE.fetch_add(down, Ordering::Relaxed);
-            for handle in &state.handles {
-                handle.abort();
-            }
-            // abort() only *requests* cancellation; the task (and its
-            // listener socket) isn't guaranteed to be dropped until the
-            // runtime actually polls it again. Wait for every handle to
-            // finish so the sockets are released before we return — otherwise
-            // an immediate restart on the same ports can race and fail with
-            // "address in use". Bounded per-handle so a stuck task can't hang
-            // shutdown forever; we're called from an external (non-runtime)
-            // thread, so block_on here is safe and won't deadlock a worker.
-            let handles = std::mem::take(&mut state.handles);
-            runtime().block_on(async {
-                for handle in handles {
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
-                    // Ok(Err(JoinError)) is expected (task was cancelled);
-                    // Err(Elapsed) means the task didn't wind down in time —
-                    // nothing more we can safely do from here, so proceed.
-                }
-            });
-            // `state` drops here: tunnel, listeners all released.
+            drop(tunnel);
         }
     });
 }
@@ -570,14 +597,20 @@ pub unsafe extern "C" fn bridge_test_selected_proxy(api_addr: *const c_char) -> 
 // Tests (loopback-only; no external network).
 // ---------------------------------------------------------------------------
 
+/// Engine start/stop and the log sink mutate process-global state; every
+/// test that touches either (here and in `logging`) serializes on this —
+/// including config validation, which logs through the sink while it loads.
+#[cfg(test)]
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::CString;
-
-    // Engine start/stop mutate process-global state; serialize the tests that
-    // touch it.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use std::io::{Read, Write};
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     fn free_port() -> i32 {
         std::net::TcpListener::bind("127.0.0.1:0")
@@ -610,6 +643,7 @@ rules:
 
     #[test]
     fn validates_minimal_config() {
+        let _g = TEST_LOCK.lock();
         let yaml = "mode: rule\nproxies: []\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - DIRECT\nrules:\n  - MATCH,DIRECT\n";
         assert_eq!(validate(yaml), 0);
     }
@@ -625,6 +659,7 @@ rules:
     // (public key material only) — TlsLayer::new parses it structurally.
     #[test]
     fn validates_ss_ech_tls_tunnel_plugin() {
+        let _g = TEST_LOCK.lock();
         let yaml = "\
 mode: rule
 proxies:
@@ -653,6 +688,7 @@ rules:
 
     #[test]
     fn rejects_undefined_group_by_name() {
+        let _g = TEST_LOCK.lock();
         let yaml = "proxies: []\nproxy-groups: []\nrules:\n  - MATCH,NONEXISTENT\n";
         assert_eq!(validate(yaml), -1);
         let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
@@ -664,6 +700,7 @@ rules:
 
     #[test]
     fn rejects_invalid_yaml() {
+        let _g = TEST_LOCK.lock();
         assert_eq!(validate("proxies: [[[invalid yaml\n"), -1);
     }
 
@@ -1098,6 +1135,223 @@ rules:
             assert!(bridge_get_download_traffic() >= last_down);
         }
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn start_engine(dir: &std::path::Path) -> (i32, i32) {
+        let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(dir_c.as_ptr()) };
+        let socks = free_port();
+        let dns = free_port();
+        let ctrl_c = CString::new(format!("127.0.0.1:{}", free_port())).unwrap();
+        let secret_c = CString::new("").unwrap();
+        let rc = unsafe { bridge_start_with_ports(socks, dns, ctrl_c.as_ptr(), secret_c.as_ptr()) };
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, 0, "start failed: {err}");
+        assert!(
+            wait_accept(&format!("127.0.0.1:{socks}")),
+            "mixed listener not up"
+        );
+        (socks, dns)
+    }
+
+    /// Loopback TCP echo server on an ephemeral port; runs until the test
+    /// process exits (a stuck accept is harmless there).
+    fn spawn_echo_server() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                std::thread::spawn(move || {
+                    let mut stream = stream;
+                    let mut buf = [0u8; 1024];
+                    while let Ok(n) = stream.read(&mut buf) {
+                        if n == 0 || stream.write_all(&buf[..n]).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    /// Minimal loopback HTTP server answering every request with 204 and
+    /// counting them — a stand-in for the url-test probe target.
+    fn spawn_http_204_server() -> (u16, Arc<AtomicUsize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&hits);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let counter = Arc::clone(&counter);
+                std::thread::spawn(move || {
+                    let mut stream = stream;
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                    let mut buf = [0u8; 2048];
+                    let mut got = Vec::new();
+                    // Read until the end of the request head.
+                    while let Ok(n) = stream.read(&mut buf) {
+                        if n == 0 {
+                            return;
+                        }
+                        got.extend_from_slice(&buf[..n]);
+                        if got.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
+                });
+            }
+        });
+        (port, hits)
+    }
+
+    /// SOCKS5 CONNECT to 127.0.0.1:`dst_port` through the engine's mixed
+    /// listener; returns the client side of the established session.
+    fn socks5_connect(socks_port: i32, dst_port: u16) -> std::net::TcpStream {
+        let mut s = std::net::TcpStream::connect(format!("127.0.0.1:{socks_port}")).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        s.write_all(&[0x05, 0x01, 0x00]).unwrap();
+        let mut reply = [0u8; 2];
+        s.read_exact(&mut reply).unwrap();
+        assert_eq!(reply, [0x05, 0x00], "SOCKS5 method negotiation");
+        let mut req = vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1];
+        req.extend_from_slice(&dst_port.to_be_bytes());
+        s.write_all(&req).unwrap();
+        let mut head = [0u8; 4];
+        s.read_exact(&mut head).unwrap();
+        assert_eq!(head[1], 0x00, "SOCKS5 CONNECT rejected: {:?}", head);
+        let bnd_len = match head[3] {
+            0x01 => 4 + 2,
+            0x04 => 16 + 2,
+            other => panic!("unexpected BND ATYP {other:#x}"),
+        };
+        let mut bnd = vec![0u8; bnd_len];
+        s.read_exact(&mut bnd).unwrap();
+        s
+    }
+
+    fn wait_for_hits(hits: &AtomicUsize, at_least: usize, within: Duration) -> bool {
+        let deadline = Instant::now() + within;
+        while Instant::now() < deadline {
+            if hits.load(Ordering::SeqCst) >= at_least {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    // Regression (issue #113, finding 2): the mixed listener detaches every
+    // accepted connection with a bare `tokio::spawn`, so aborting only the
+    // listener task left established sessions relaying through the stopped
+    // engine (the app reported "disconnected" while traffic kept flowing).
+    // Stop must close them.
+    #[test]
+    fn stop_closes_established_socks5_sessions() {
+        let _g = TEST_LOCK.lock();
+        let dir = std::env::temp_dir().join(format!("meow-ffi-stopconn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.yaml"), MINIMAL_CONFIG).unwrap();
+        let echo_port = spawn_echo_server();
+        let (socks, _dns) = start_engine(&dir);
+
+        let mut session = socks5_connect(socks, echo_port);
+        session.write_all(b"ping").unwrap();
+        let mut buf = [0u8; 4];
+        session.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"ping", "echo through the engine before stop");
+
+        bridge_stop_proxy();
+        assert!(!bridge_is_running());
+
+        // The relay task must be gone: the client's next read sees EOF (or a
+        // reset), never a timeout with the session still alive. Write first so
+        // a still-running relay would have something to echo back. (The 5 s
+        // read timeout from `socks5_connect` is still in force.)
+        let _ = session.write_all(b"after-stop");
+        let mut out = [0u8; 16];
+        match session.read(&mut out) {
+            Ok(0) | Err(_) => {}
+            Ok(n) => panic!(
+                "session still relaying after stop: got {:?}",
+                String::from_utf8_lossy(&out[..n])
+            ),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// url-test group with a 1 s non-lazy probe against a local target.
+    /// Real newlines (no `\` continuation) so the YAML indentation survives.
+    const HEALTH_CHECK_CONFIG: &str = "mode: rule
+dns:
+  enable: true
+  listen: 127.0.0.1:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 28.0.0.0/8
+  nameserver:
+    - 127.0.0.1:5353
+proxies: []
+proxy-groups:
+  - name: AUTO
+    type: url-test
+    url: http://127.0.0.1:PROBE_PORT/generate_204
+    interval: 1
+    lazy: false
+    proxies:
+      - DIRECT
+rules:
+  - MATCH,AUTO
+";
+
+    fn write_health_check_config(dir: &std::path::Path, probe_port: u16) {
+        let yaml = HEALTH_CHECK_CONFIG.replace("PROBE_PORT", &probe_port.to_string());
+        std::fs::write(dir.join("config.yaml"), yaml).unwrap();
+    }
+
+    // Regression (issue #113, finding 2): url-test / fallback health-check
+    // loops are spawned before the engine's task handles existed and own a
+    // cloned tunnel, so they outlived stop and accumulated across restarts
+    // (N generations → N probe loops, each pinning its dead tunnel). Every
+    // stop must silence the probes; a restart must not bring the old ones back.
+    #[test]
+    fn stop_halts_health_check_probes_and_restart_does_not_accumulate() {
+        let _g = TEST_LOCK.lock();
+        let dir = std::env::temp_dir().join(format!("meow-ffi-hc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (probe_port, hits) = spawn_http_204_server();
+        write_health_check_config(&dir, probe_port);
+
+        const QUIET: Duration = Duration::from_millis(2500);
+        for generation in 0..3 {
+            let before = hits.load(Ordering::SeqCst);
+            start_engine(&dir);
+            // A non-lazy 1 s url-test group probes right away and keeps going.
+            assert!(
+                wait_for_hits(&hits, before + 2, Duration::from_secs(10)),
+                "generation {generation}: health checks never probed the local target"
+            );
+            bridge_stop_proxy();
+            assert!(!bridge_is_running());
+
+            // A live loop would hit the target at least twice more in QUIET.
+            let at_stop = hits.load(Ordering::SeqCst);
+            std::thread::sleep(QUIET);
+            let after = hits.load(Ordering::SeqCst);
+            assert_eq!(
+                after, at_stop,
+                "generation {generation}: {} probe(s) fired after stop — a health-check loop outlived the engine",
+                after - at_stop
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

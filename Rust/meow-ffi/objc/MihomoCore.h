@@ -2,6 +2,12 @@
 
 FOUNDATION_EXPORT void BridgeSetHomeDir(NSString * _Nullable dir);
 FOUNDATION_EXPORT void BridgeSetLogFile(NSString * _Nullable path);
+/// Keeps only the last `maxLines` lines of the file set by BridgeSetLogFile,
+/// rotating it under the engine's own writer lock and reopening the handle.
+/// Use this instead of rewriting the file from Swift: an external atomic
+/// replace would leave the engine logging into the unlinked old inode.
+/// No-op (returns YES) when no log file is set or it is within the cap.
+FOUNDATION_EXPORT BOOL BridgeTrimLogFile(int32_t maxLines, NSError * _Nullable * _Nullable error);
 /// Starts the mihomo proxy engine on the caller-supplied 127.0.0.1
 /// ports. The caller (main app) picks the ports up-front so its REST
 /// clients know the controller endpoint without an IPC round-trip.
