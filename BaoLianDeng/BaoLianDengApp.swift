@@ -11,7 +11,12 @@ struct BaoLianDengApp: App {
     @StateObject private var trafficStore = TrafficStore.shared
 
     init() {
-        guard !AppConstants.isRunningUnitTests else { return }
+        guard !AppConstants.isRunningUnitTests else {
+            // Keep the unit-test host off screen: no Dock icon, no window
+            // popping up and stealing focus while xcodebuild test runs.
+            NSApplication.shared.setActivationPolicy(.prohibited)
+            return
+        }
         FirebaseApp.configure()
         ConfigManager.shared.sanitizeConfig()
     }
