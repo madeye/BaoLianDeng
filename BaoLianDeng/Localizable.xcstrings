@@ -281,6 +281,16 @@
         }
       }
     },
+    "Could not run networksetup.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法运行 networksetup。"
+          }
+        }
+      }
+    },
     "Could not resolve the configuration directory.": {
       "localizations": {
         "zh-Hans": {
@@ -492,6 +502,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "启动本地代理失败：%@"
+          }
+        }
+      }
+    },
+    "Failed to update system proxy: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新系统代理失败：%@"
           }
         }
       }
@@ -1162,12 +1182,12 @@
         }
       }
     },
-    "Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no system extension or VPN configuration needed. Apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.": {
+    "Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no network extension or VPN configuration needed. With Set as System Proxy on, the macOS HTTP, HTTPS and SOCKS proxy settings point at it while it runs and are switched off when it stops; otherwise apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在应用内运行代理引擎，在 127.0.0.1 上提供 HTTP/SOCKS5 代理——无需系统扩展或 VPN 配置。应用需手动设置使用该代理。切换方式或端口将在下次启动时生效。"
+            "value": "在应用内运行代理引擎，在 127.0.0.1 上提供 HTTP/SOCKS5 代理——无需网络扩展或 VPN 配置。开启“设为系统代理”后，运行期间 macOS 的 HTTP、HTTPS 和 SOCKS 代理设置会指向该代理，停止时自动关闭；否则应用需手动设置使用该代理。切换方式或端口将在下次启动时生效。"
           }
         }
       }
@@ -1235,6 +1255,16 @@
         }
       },
       "extractionState": "manual"
+    },
+    "Set as System Proxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为系统代理"
+          }
+        }
+      }
     },
     "Settings": {
       "localizations": {
@@ -1571,6 +1601,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "语言"
+          }
+        }
+      }
+    },
+    "System proxy command failed: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统代理命令失败：%@"
           }
         }
       }

@@ -38,6 +38,19 @@ enum AppConstants {
     /// must be stable across restarts.
     static let localProxyPortKey = "localProxyPort"
     static let defaultLocalProxyPort = 7890
+    /// UserDefaults key (Bool) — when true, local proxy mode also points the
+    /// macOS HTTP/HTTPS/SOCKS proxy settings at the listener while it runs.
+    /// Absent means enabled.
+    static let localProxySetsSystemProxyKey = "localProxySetsSystemProxy"
+    /// UserDefaults key (Bool) set while the system proxy points at this app,
+    /// so a crash or force quit can be cleaned up on the next launch.
+    static let systemProxyAppliedKey = "systemProxyApplied"
+
+    /// Whether local proxy mode should manage the macOS system proxy.
+    static var localProxySetsSystemProxy: Bool {
+        sharedDefaults.object(forKey: localProxySetsSystemProxyKey) == nil
+            || sharedDefaults.bool(forKey: localProxySetsSystemProxyKey)
+    }
 
     /// The local proxy port currently configured in Settings, clamped to the
     /// valid range with the default as fallback.

@@ -41,6 +41,11 @@ final class VPNManager: NSObject, ObservableObject {
 
     private var manager: NETransparentProxyManager?
     private var statusObserver: NSObjectProtocol?
+    private var terminateObserver: NSObjectProtocol?
+    /// Serializes networksetup runs so a quick stop/start can't interleave.
+    private let systemProxyQueue = DispatchQueue(
+        label: "io.github.baoliandeng.systemproxy", qos: .userInitiated
+    )
 
     /// True when the provider ships as an app extension in PlugIns (MAS /
     /// Debug / local Release) instead of a system extension. Appexes need no
@@ -63,6 +68,19 @@ final class VPNManager: NSObject, ObservableObject {
         if AppConstants.isRunningUnitTests {
             return
         }
+        // A previous instance that crashed or was force-quit may have left
+        // the macOS proxy pointing at a listener that no longer exists.
+        systemProxyQueue.async {
+            SystemProxyConfigurator.shared.clearIfStale()
+        }
+        #if canImport(AppKit)
+        terminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.clearSystemProxyOnQuit()
+        }
+        #endif
         // Local proxy mode never touches the network extension or NE
         // preferences — a local-only user should see no approval prompts
         // or "add VPN configurations" dialogs.
@@ -142,6 +160,9 @@ final class VPNManager: NSObject, ObservableObject {
 
     deinit {
         if let observer = statusObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = terminateObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -461,6 +482,7 @@ final class VPNManager: NSObject, ObservableObject {
             LocalProxyController.shared.stop()
             status = .disconnected
             isProcessing = false
+            clearSystemProxyAsync()
             return
         }
         if engineMode == .localProxy {
@@ -496,10 +518,16 @@ final class VPNManager: NSObject, ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
                 try LocalProxyController.shared.start(configYAML: yaml)
+                let systemProxyError = self?.systemProxyQueue.sync {
+                    self?.syncSystemProxyBlocking()
+                }
                 DispatchQueue.main.async {
                     self?.isProcessing = false
                     self?.status = .connected
                     self?.replaySavedGroupSelections()
+                    if let systemProxyError {
+                        self?.errorMessage = Self.systemProxyErrorMessage(systemProxyError)
+                    }
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -515,10 +543,80 @@ final class VPNManager: NSObject, ObservableObject {
     }
 
     /// Stop + start the in-process engine so config changes take effect.
+    /// The system proxy is left in place across the restart; `startLocalProxy`
+    /// re-applies it for the (possibly changed) port.
     private func restartLocalProxy() {
         LocalProxyController.shared.stop()
         status = .disconnected
         startLocalProxy()
+    }
+
+    // MARK: - System Proxy (local proxy mode)
+
+    /// Bring the macOS proxy settings in line with the "Set as System
+    /// Proxy" toggle for the running local proxy. Called when the toggle
+    /// changes; a no-op unless the local proxy is running.
+    func syncSystemProxy() {
+        guard engineMode == .localProxy, LocalProxyController.shared.isRunning else { return }
+        systemProxyQueue.async { [weak self] in
+            guard let error = self?.syncSystemProxyBlocking() else { return }
+            DispatchQueue.main.async {
+                self?.errorMessage = Self.systemProxyErrorMessage(error)
+            }
+        }
+    }
+
+    /// Apply or clear the system proxy according to the toggle. Blocking;
+    /// runs on the caller's (background) thread. Returns the failure, if any.
+    private func syncSystemProxyBlocking() -> Error? {
+        let configurator = SystemProxyConfigurator.shared
+        do {
+            if AppConstants.localProxySetsSystemProxy, LocalProxyController.shared.isRunning {
+                try configurator.apply(port: LocalProxyController.shared.mixedPort)
+            } else if configurator.isApplied {
+                try configurator.clear()
+            }
+            return nil
+        } catch {
+            dbg("system proxy sync failed: \(error.localizedDescription)")
+            return error
+        }
+    }
+
+    private func clearSystemProxyAsync() {
+        guard SystemProxyConfigurator.shared.isApplied else { return }
+        systemProxyQueue.async { [weak self] in
+            do {
+                try SystemProxyConfigurator.shared.clear()
+            } catch {
+                DispatchQueue.main.async {
+                    self?.errorMessage = Self.systemProxyErrorMessage(error)
+                }
+            }
+        }
+    }
+
+    /// Quit path: the process is going away, so the local engine dies with
+    /// it and the proxy settings must not keep pointing at a dead port.
+    /// Synchronous on purpose — there is no later chance to run it.
+    private func clearSystemProxyOnQuit() {
+        guard SystemProxyConfigurator.shared.isApplied else { return }
+        systemProxyQueue.sync {
+            do {
+                try SystemProxyConfigurator.shared.clear()
+            } catch {
+                AppLogger.vpn.error(
+                    "System proxy cleanup on quit failed: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+    }
+
+    private static func systemProxyErrorMessage(_ error: Error) -> String {
+        String(
+            format: String(localized: "Failed to update system proxy: %@"),
+            error.localizedDescription
+        )
     }
 
     func toggle() {

@@ -15,6 +15,8 @@ struct SettingsView: View {
     private var autoStartVPNAtLogin = false
     @AppStorage(AppConstants.localProxyPortKey, store: AppConstants.sharedDefaults)
     private var localProxyPort = AppConstants.defaultLocalProxyPort
+    @AppStorage(AppConstants.localProxySetsSystemProxyKey, store: AppConstants.sharedDefaults)
+    private var localProxySetsSystemProxy = true
     @State private var startupErrorMessage: String?
 
     var body: some View {
@@ -111,6 +113,11 @@ struct SettingsView: View {
                     value: $localProxyPort,
                     format: .number.grouping(.never)
                 )
+                Toggle("Set as System Proxy", isOn: $localProxySetsSystemProxy)
+                    .toggleStyle(.switch)
+                    .onChange(of: localProxySetsSystemProxy) {
+                        vpnManager.syncSystemProxy()
+                    }
                 if vpnManager.isConnected {
                     LabeledContent(
                         "Proxy Address",
@@ -122,7 +129,7 @@ struct SettingsView: View {
             Text("Proxy Method")
         } footer: {
             if vpnManager.engineMode == .localProxy {
-                Text("Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no network extension or VPN configuration needed. Apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.")
+                Text("Runs the engine inside the app as an HTTP/SOCKS5 proxy on 127.0.0.1 — no network extension or VPN configuration needed. With Set as System Proxy on, the macOS HTTP, HTTPS and SOCKS proxy settings point at it while it runs and are switched off when it stops; otherwise apps must be pointed at the proxy manually. Switching method or port takes effect on the next start.")
             } else {
                 Text("Intercepts all traffic system-wide via the Network Extension.")
             }
