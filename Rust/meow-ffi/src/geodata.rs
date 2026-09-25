@@ -8,11 +8,13 @@
 //!    the `country/iso_code` schema; mihomo's `geoip.metadb` is incompatible)
 //!    and `geosite.dat` into the bridge home dir — which is NOT
 //!    `$HOME/.config/meow`.
-//! 2. meow's home dir is first-write-wins, so once set it can't be repointed;
-//!    a `GEOIP`/`GEOSITE` rule whose mmdb isn't found is a HARD error in
+//! 2. meow's home dir is first-write-wins, so once set it can't be repointed.
+//!    The bridge therefore never sets it (see `bridge_set_home_dir`, issue
+//!    #115), and discovery would fall back to `$HOME/.config/meow`; a
+//!    `GEOIP`/`GEOSITE` rule whose mmdb isn't found is a HARD error in
 //!    `build_config` (mmap open fails), not a warning.
 //!
-//! So rather than trust the `OnceLock`, we inject explicit `geodata.*-path`
+//! So rather than rely on discovery, we inject explicit `geodata.*-path`
 //! overrides (which take precedence over discovery) sourced from the bridge
 //! home dir the caller most recently set, into every config we parse — for
 //! both validation and engine start.
