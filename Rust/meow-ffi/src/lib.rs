@@ -27,7 +27,6 @@ use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
@@ -164,12 +163,15 @@ pub unsafe extern "C" fn bridge_set_home_dir(dir: *const c_char) {
         if d.is_empty() {
             return;
         }
-        *HOME_DIR.lock() = Some(d.clone());
-        // meow's home dir is a first-write-wins OnceLock used by geodata path
-        // helpers. Config loading uses HOME_DIR (last-wins) so restarting with
-        // a different dir still finds the right config.yaml; only geodata
-        // default paths stay pinned to the first value.
-        meow_common::set_home_dir(PathBuf::from(d));
+        // Deliberately NOT forwarded to `meow_common::set_home_dir`: that is a
+        // first-write-wins OnceLock, and meow-config resolves the provider /
+        // `selector-cache.json` dir from it ahead of the config's own parent.
+        // Once pinned (e.g. by a validation under the config dir) a later
+        // start under a different home (local-proxy `runtime/`) would read and
+        // write the stale dir's selector cache (issue #115). Leaving it unset
+        // makes meow-config use `<home>/config.yaml`'s parent — this last-wins
+        // HOME_DIR — and geodata paths are pinned explicitly (geodata.rs).
+        *HOME_DIR.lock() = Some(d);
     });
 }
 
@@ -856,6 +858,72 @@ rules:
         let _ = std::fs::remove_dir_all(&dir_b);
         assert_eq!(rc, 0, "GEOIP validate under home B failed: {err}");
         assert!(!err.contains(&a_str), "resolved stale home A: {err}");
+    }
+
+    /// Issue #115: the engine's `selector-cache.json` must come from the
+    /// CURRENT bridge home, even after an earlier home was set first (the
+    /// main app validates under the config dir, then local-proxy mode starts
+    /// under `runtime/`).
+    #[test]
+    fn selector_cache_follows_current_home_not_first_home() {
+        let _g = TEST_LOCK.lock();
+        let pid = std::process::id();
+
+        let dir_a = std::env::temp_dir().join(format!("meow-ffi-sela-{pid}"));
+        std::fs::create_dir_all(&dir_a).unwrap();
+        let a_c = CString::new(dir_a.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(a_c.as_ptr()) };
+
+        let dir_b = std::env::temp_dir().join(format!("meow-ffi-selb-{pid}"));
+        std::fs::create_dir_all(&dir_b).unwrap();
+        let yaml = MINIMAL_CONFIG.replace(
+            "proxy-groups: []",
+            "proxy-groups:\n  - name: Proxies\n    type: select\n    proxies:\n      - DIRECT\n      - REJECT",
+        );
+        std::fs::write(dir_b.join("config.yaml"), yaml).unwrap();
+        std::fs::write(dir_b.join("selector-cache.json"), r#"{"Proxies":"REJECT"}"#).unwrap();
+        let b_c = CString::new(dir_b.to_str().unwrap()).unwrap();
+        unsafe { bridge_set_home_dir(b_c.as_ptr()) };
+
+        let ctrl = free_port();
+        let ctrl_c = CString::new(format!("127.0.0.1:{ctrl}")).unwrap();
+        let secret_c = CString::new("").unwrap();
+        let rc = unsafe {
+            bridge_start_with_ports(free_port(), free_port(), ctrl_c.as_ptr(), secret_c.as_ptr())
+        };
+        let err = unsafe { CStr::from_ptr(bridge_get_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(rc, 0, "start failed: {err}");
+
+        // The controller binds asynchronously after start returns.
+        let body = (0..50)
+            .find_map(|_| {
+                use std::io::{Read, Write};
+                let Ok(mut s) = std::net::TcpStream::connect(("127.0.0.1", ctrl as u16)) else {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    return None;
+                };
+                s.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .ok()?;
+                s.write_all(
+                    b"GET /proxies/Proxies HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+                )
+                .ok()?;
+                let mut out = String::new();
+                let _ = s.read_to_string(&mut out);
+                Some(out)
+            })
+            .unwrap_or_default();
+
+        bridge_stop_proxy();
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
+        assert!(
+            body.contains(r#""now":"REJECT""#),
+            "selector cache under the current home was ignored: {body}"
+        );
     }
 
     /// Write a config with Clash-style allow-lan + mixed-port for LAN tests.

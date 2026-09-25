@@ -292,7 +292,7 @@ fn validate_lan_bind(bind: &str, lan_proxy_port: u16) -> anyhow::Result<()> {
 
 /// Load a config with geodata paths pinned to the bridge home dir.
 ///
-/// meow's geodata discovery goes through a first-write-wins home-dir OnceLock;
+/// meow's geodata discovery goes through a home-dir OnceLock the bridge leaves unset;
 /// to guarantee GEOIP/GEOSITE rules find `<home>/Country.mmdb` and
 /// `<home>/geosite.dat` (and never `$HOME/.config/meow`), we inject explicit
 /// `geodata.*-path` overrides into the config before parsing. When the config
