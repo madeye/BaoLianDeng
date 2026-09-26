@@ -128,17 +128,35 @@ echo ""
 echo "--- Step 6: Build and install app ---"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=../../scripts/lib/deploy-lib.sh
+source "$PROJECT_DIR/scripts/lib/deploy-lib.sh"
 
 echo "Building framework..."
 cd "$PROJECT_DIR"
 make framework
 
 echo "Building app (Debug, signed)..."
-xcodebuild build \
+# Wipe DerivedData first (matches dev-deploy.sh/release-deploy.sh) so a
+# failed build below can never leave the `find` on the next line picking up
+# a stale app from an earlier successful run. Use xcodebuild_logged instead
+# of `xcodebuild ... 2>&1 | tail -5` so a failed build's real exit status
+# (e.g. 65) is what `set -e` sees, not tail's — see issue #113 finding 3;
+# this script does the same DerivedData/build/appex checks dev-deploy.sh
+# and release-deploy.sh do, so it needs the same fix.
+rm -rf ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/BaoLianDeng-vm-build.XXXXXX")"
+BUILD_STATUS=0
+xcodebuild_logged "$BUILD_LOG" 5 build \
     -project BaoLianDeng.xcodeproj \
     -scheme BaoLianDeng \
     -configuration Debug \
-    -destination 'platform=macOS' 2>&1 | tail -5
+    -destination 'platform=macOS' || BUILD_STATUS=$?
+if [ "$BUILD_STATUS" -ne 0 ]; then
+    echo "ERROR: xcodebuild build failed (exit ${BUILD_STATUS})"
+    echo "Full log: $BUILD_LOG"
+    exit "$BUILD_STATUS"
+fi
+rm -f "$BUILD_LOG"
 
 APP_BUILD_PATH=$(find ~/Library/Developer/Xcode/DerivedData/BaoLianDeng-*/Build/Products/Debug -name "BaoLianDeng.app" -maxdepth 1 2>/dev/null | head -1)
 if [ -z "$APP_BUILD_PATH" ]; then

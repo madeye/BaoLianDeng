@@ -32,8 +32,24 @@ final class ConfigManager {
         return containerPath.appendingPathComponent("BaoLianDeng/mihomo", isDirectory: true)
     }
 
+    /// The user's editable base configuration — the single authoritative
+    /// input to BOTH engine start paths (VPN provider and in-process local
+    /// proxy). See `loadBaseConfig` for how it composes with subscriptions.
     var configFileURL: URL? {
         configDirectoryURL?.appendingPathComponent(AppConstants.configFileName)
+    }
+
+    /// Directory the in-process engine (local proxy mode) runs from. It holds
+    /// the derived runtime YAML (`config.yaml` = base + user settings) plus
+    /// links to the shared geodata files. The engine only ever loads
+    /// `<home>/config.yaml`, so giving it its own home is what keeps startup
+    /// from overwriting `configFileURL` with a derived artifact. Files the
+    /// engine writes relative to its config — provider `path:` caches,
+    /// `selector-cache.json` — land here too, so local-proxy mode refetches
+    /// providers once on its first start after this directory appears
+    /// (saved group selections are replayed over REST, not read from disk).
+    var runtimeDirectoryURL: URL? {
+        configDirectoryURL?.appendingPathComponent("runtime", isDirectory: true)
     }
 
     func ensureConfigDirectory() throws {
@@ -195,6 +211,144 @@ final class ConfigManager {
         return fileManager.fileExists(atPath: fileURL.path)
     }
 
+    // MARK: - Base config (what the engine actually starts from)
+
+    /// How the saved local config and the selected subscription compose:
+    ///
+    /// `config.yaml` (`configFileURL`) is the one authoritative, editable
+    /// base. The selected subscription is merged INTO it — header kept from
+    /// the file (ports, and `dns:` unless the subscription ships its own
+    /// `dns:` block, which replaces it), proxies / proxy-groups / providers /
+    /// rules taken from the subscription — by `applySubscriptionConfig`,
+    /// which runs when a subscription is selected or (re)fetched. Between
+    /// those events the file is the user's: whatever the Config Editor
+    /// saved (custom proxies, rules, DNS nameservers, …) is exactly what
+    /// the next tunnel start or reload runs, with or without a selected
+    /// subscription. Startup therefore never re-merges the subscription;
+    /// doing so would replace the user's edits with the stored
+    /// `rawContent` (and, with no subscription, with the built-in
+    /// defaults). Refreshing a subscription still overwrites the merged
+    /// sections — that is the documented cost of the "merged into" model.
+    ///
+    /// Because startup never consults the selection, the file must be
+    /// detached explicitly when the selection goes away: deleting the
+    /// selected subscription, or selecting one whose content has not been
+    /// fetched yet, runs `clearSubscriptionConfig` (defaults' proxies /
+    /// groups / rules back, providers dropped, header kept) so the engine
+    /// cannot keep routing through nodes the UI no longer shows as selected.
+    /// The one deliberate divergence left is the editor's Reset Default +
+    /// Save: it puts the built-in defaults in the file while the Home tab
+    /// still shows the subscription as selected, until it is re-selected or
+    /// refreshed — the editor's Save is authoritative by design.
+    ///
+    /// Runtime-only settings (log level, routing mode, Allow LAN, the local
+    /// proxy port) and the engine-mode DNS invariants are layered on top by
+    /// `buildEffectiveConfig` at start time and are never written back here.
+    func loadBaseConfig() -> String {
+        try? ensureBaseConfig()
+        return (try? loadConfig()) ?? defaultConfig()
+    }
+
+    /// Create `config.yaml` when it does not exist yet. A fresh container
+    /// with a subscription already selected gets that subscription merged
+    /// onto the defaults, so the first start does not silently run on
+    /// built-in rules while the UI shows a selected subscription; otherwise
+    /// the built-in defaults are written. An existing file is left alone.
+    func ensureBaseConfig() throws {
+        if configExists() { return }
+        if applySelectedSubscription() { return }
+        try saveConfig(defaultConfig())
+    }
+
+    /// Layer runtime settings on top of the user's base config to produce
+    /// the YAML the engine starts from. Pure — the result is handed to the
+    /// provider (`providerConfiguration`) or written to the runtime
+    /// directory, never back to `configFileURL`.
+    ///
+    /// `sanitizeConfigString` re-runs here because the file was sanitized
+    /// for whichever engine mode was active when it was saved; the DNS
+    /// `enhanced-mode` / `fake-ip-range` invariants depend on the mode the
+    /// engine is about to start in. `ensureProxyGroupFallback` keeps a base
+    /// whose rules still target `PROXY` startable after the user removed or
+    /// renamed that group in the editor.
+    static func buildEffectiveConfig(
+        base: String, engineMode: EngineMode, settings: EngineRuntimeSettings
+    ) -> String {
+        var yaml = base
+        sanitizeConfigString(&yaml, engineMode: engineMode)
+        ensureProxyGroupFallback(&yaml)
+
+        if let logLevel = settings.logLevel {
+            yaml = replacingTopLevelScalar(in: yaml, key: "log-level", value: logLevel)
+        }
+        yaml = replacingTopLevelScalar(in: yaml, key: "mode", value: settings.proxyMode)
+        // The engine creates GLOBAL from the final MATCH target, preserving
+        // any explicitly declared GLOBAL and following per-group selections.
+
+        // Clash-compatible allow-lan: engine reads these from YAML (no FFI arg).
+        // When enabled, mixed-port is the LAN-facing listener; in local-proxy
+        // mode it usually equals the user-facing mixed port and merges into
+        // one 0.0.0.0 bind. DNS + external-controller stay loopback either way.
+        let lan = settings.lanSharing
+        yaml = replacingTopLevelScalar(
+            in: yaml, key: "allow-lan", value: lan.enabled ? "true" : "false"
+        )
+        if lan.enabled {
+            yaml = replacingTopLevelScalar(in: yaml, key: "bind-address", value: "0.0.0.0")
+            yaml = replacingTopLevelScalar(
+                in: yaml, key: "mixed-port", value: String(lan.effectiveProxyPort)
+            )
+        } else if engineMode == .localProxy {
+            // Document the local mixed port even without LAN; the bridge still
+            // forces the actual bind from the socks_port argument.
+            yaml = replacingTopLevelScalar(
+                in: yaml, key: "mixed-port", value: String(settings.localProxyPort)
+            )
+        }
+        return yaml
+    }
+
+    /// Prepare `runtimeDirectoryURL` for an in-process engine start: write
+    /// the derived `runtimeYAML` as its `config.yaml` and link the shared
+    /// geodata files in beside it. The user's `configFileURL` is not touched.
+    /// Returns the runtime directory to pass to `BridgeSetHomeDir`.
+    func prepareRuntimeDirectory(runtimeYAML: String) throws -> URL {
+        guard let configDir = configDirectoryURL, let runtimeDir = runtimeDirectoryURL else {
+            throw ConfigError.sharedContainerUnavailable
+        }
+        try ensureConfigDirectory()
+        ensureGeodataFiles(configDir: configDir.path)
+        try Self.prepareRuntimeDirectory(
+            at: runtimeDir, geodataDir: configDir, runtimeYAML: runtimeYAML
+        )
+        return runtimeDir
+    }
+
+    /// Filesystem half of `prepareRuntimeDirectory(runtimeYAML:)`, split out
+    /// so tests can point it at temporary directories. Geodata is hard-linked
+    /// (falling back to a copy) and re-linked on every start so a
+    /// re-downloaded database in `geodataDir` is picked up.
+    static func prepareRuntimeDirectory(at runtimeDir: URL, geodataDir: URL, runtimeYAML: String) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: runtimeDir, withIntermediateDirectories: true)
+        let runtimeConfig = runtimeDir.appendingPathComponent(AppConstants.configFileName)
+        try runtimeYAML.write(to: runtimeConfig, atomically: true, encoding: .utf8)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: runtimeConfig.path)
+
+        for file in geodataFiles {
+            let name = "\(file.name).\(file.ext)"
+            let src = geodataDir.appendingPathComponent(name)
+            let dst = runtimeDir.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: src.path) else { continue }
+            try? fileManager.removeItem(at: dst)
+            do {
+                try fileManager.linkItem(at: src, to: dst)
+            } catch {
+                try fileManager.copyItem(at: src, to: dst)
+            }
+        }
+    }
+
     /// Save the desired mode to UserDefaults. The tunnel reads this on startup.
     func setMode(_ mode: String) {
         AppConstants.sharedDefaults.set(mode, forKey: "proxyMode")
@@ -264,7 +418,8 @@ final class ConfigManager {
     /// Patch the on-disk config.yaml to disable geo data downloads, which would
     /// block the Network Extension during startup. Safe to call on every launch.
     func sanitizeConfig() {
-        guard let yaml = try? loadConfig() else { return }
+        guard var yaml = try? loadConfig() else { return }
+        Self.normalizeFlowSection(&yaml, key: "tun")
         var lines = yaml.components(separatedBy: "\n")
         var hasGeoAutoUpdate = false
 
@@ -313,6 +468,9 @@ final class ConfigManager {
     static func sanitizeConfigString(_ config: inout String, engineMode: EngineMode = .vpn) {
         // Disable TUN and geo-auto-update — transparent proxy intercepts at
         // socket level, and geo downloads would block tunnel startup.
+        // An inline `tun: {enable: true}` has no `enable:` line to rewrite,
+        // so spell it out in block style first.
+        normalizeFlowSection(&config, key: "tun")
         var lines = config.components(separatedBy: "\n")
         var inTunBlock = false
         lines = lines.map { line in
@@ -390,6 +548,7 @@ final class ConfigManager {
     /// fallback, nameserver-policy, fake-ip-filter, and comments stay as
     /// the user or subscription wrote them.
     static func forceManagedDNS(_ config: inout String, engineMode: EngineMode = .vpn) {
+        normalizeFlowSection(&config, key: "dns")
         var lines = config.components(separatedBy: "\n")
         if let range = topLevelSectionRange(in: lines, key: "dns") {
             var section = Array(lines[range])
@@ -414,9 +573,96 @@ final class ConfigManager {
         config = lines.joined(separator: "\n")
     }
 
+    /// Rewrite the top-level `key:` section in block style when its header
+    /// carries an inline flow mapping — `dns: {enable: true, nameserver:
+    /// [1.1.1.1]}` — or, with `includingNested`, when any line inside it
+    /// opens one (`p: {type: http, url: …}`). The line-based patchers only
+    /// address block keys: `setSectionScalar` would push indented entries
+    /// under an inline mapping (invalid YAML), the tun scan never sees an
+    /// inline `enable:`, and `sanitizeProviders` cannot find `url:` /
+    /// `path:` inside a flow provider. Block-style sections pass through
+    /// untouched, so comments there stay put; a section that fails to
+    /// parse is left as-is for the engine to reject.
+    static func normalizeFlowSection(
+        _ config: inout String, key: String, includingNested: Bool = false
+    ) {
+        var lines = config.components(separatedBy: "\n")
+        guard let range = topLevelSectionRange(in: lines, key: key) else { return }
+        let opensFlow = { (line: String) in
+            opensFlowMapping(line.trimmingCharacters(in: .whitespaces))
+        }
+        guard opensFlow(lines[range.lowerBound])
+            || (includingNested && lines[range].dropFirst().contains(where: opensFlow))
+        else { return }
+
+        // Trailing blank and comment lines sit outside the mapping; keep
+        // them verbatim.
+        var end = range.upperBound
+        while end > range.lowerBound + 1 {
+            let trimmed = lines[end - 1].trimmingCharacters(in: .whitespaces)
+            guard trimmed.isEmpty || trimmed.hasPrefix("#") else { break }
+            end -= 1
+        }
+        let text = lines[range.lowerBound..<end].joined(separator: "\n")
+        guard let node = try? Yams.compose(yaml: text),
+              let root = node.mapping, root.count == 1,
+              let value = root[key]?.mapping else { return }
+        var block: [String]
+        if value.isEmpty {
+            // libyaml still emits an empty mapping as `{}`; a bare key
+            // lets the patchers add children under it.
+            block = ["\(key):"]
+        } else {
+            guard let text = try? Yams.serialize(
+                node: blockStyled(node), width: -1, allowUnicode: true
+            ) else { return }
+            block = text.components(separatedBy: "\n")
+            while block.last?.isEmpty == true { block.removeLast() }
+        }
+        lines.replaceSubrange(range.lowerBound..<end, with: block)
+        config = lines.joined(separator: "\n")
+    }
+
+    /// True for a `key: {…`, `"key": {…`, `- {…`, or bare `{…` line.
+    private static func opensFlowMapping(_ trimmed: String) -> Bool {
+        var rest = Substring(trimmed)
+        if rest.hasPrefix("-") {
+            rest = rest.dropFirst().drop { $0 == " " || $0 == "\t" }
+        }
+        if rest.hasPrefix("{") { return true }
+        guard let first = rest.first, first != "#" else { return false }
+        if first == "\"" || first == "'" {
+            // Quoted key: the colon we want follows the closing quote.
+            let (_, quote, after) = parseYAMLScalarWithComment(String(rest))
+            guard quote != nil else { return false }
+            rest = Substring(after)
+        }
+        guard let colon = rest.firstIndex(of: ":") else { return false }
+        let value = rest[rest.index(after: colon)...].drop { $0 == " " || $0 == "\t" }
+        return value.hasPrefix("{")
+    }
+
+    /// Copy of `node` with every mapping and sequence forced to block style.
+    /// Scalars keep their quoting; empty collections still emit as `{}`/`[]`.
+    private static func blockStyled(_ node: Yams.Node) -> Yams.Node {
+        switch node {
+        case .scalar, .alias:
+            return node
+        case .mapping(let mapping):
+            let pairs = mapping.map { ($0.key, blockStyled($0.value)) }
+            return .mapping(Yams.Node.Mapping(pairs, mapping.tag, .block))
+        case .sequence(let sequence):
+            return .sequence(Yams.Node.Sequence(sequence.map(blockStyled), sequence.tag, .block))
+        }
+    }
+
     /// Inclusive range of a top-level YAML mapping section named `key`.
     /// The range starts at `key:` and ends before the next top-level key
-    /// (comments and blanks stay with the section).
+    /// (comments, blanks, and a column-0 `}` / `]` closing a multi-line
+    /// flow collection stay with the section). A flow collection left open
+    /// on the `key:` line — `dns: {` with its entries on the following
+    /// lines, even at column 0 — is followed to its closing bracket first,
+    /// since YAML lets flow entries ignore indentation.
     private static func topLevelSectionRange(
         in lines: [String], key: String
     ) -> Range<Int>? {
@@ -424,17 +670,62 @@ final class ConfigManager {
             isYAMLKey($0.trimmingCharacters(in: .whitespaces), key)
                 && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
         }) else { return nil }
+        var first = start + 1
+        var depth = flowNestingDelta(of: lines[start])
+        while depth > 0 && first < lines.count {
+            depth += flowNestingDelta(of: lines[first])
+            first += 1
+        }
         var end = lines.count
-        for i in (start + 1)..<lines.count {
+        for i in first..<lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                && !trimmed.hasPrefix("}") && !trimmed.hasPrefix("]")
                 && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
                 end = i
                 break
             }
         }
         return start..<end
+    }
+
+    /// Net number of flow collections (`{` / `[`) opened minus closed on
+    /// `line`, ignoring brackets inside quoted scalars and after a `#`
+    /// comment. Positive means the line leaves a flow collection open.
+    private static func flowNestingDelta(of line: String) -> Int {
+        var delta = 0
+        var quote: Character?
+        var previous: Character = " "
+        var escaped = false
+        for character in line {
+            defer { previous = character }
+            if let open = quote {
+                if open == "\"" && escaped {
+                    escaped = false
+                } else if open == "\"" && character == "\\" {
+                    escaped = true
+                } else if character == open {
+                    quote = nil
+                }
+                continue
+            }
+            switch character {
+            case "#" where previous == " " || previous == "\t":
+                return delta
+            case "\"", "'":
+                // A quote opens a scalar only at a token boundary; an
+                // apostrophe inside a plain scalar (`it's`) is literal.
+                if " \t{[,:".contains(previous) { quote = character }
+            case "{", "[":
+                delta += 1
+            case "}", "]":
+                delta -= 1
+            default:
+                break
+            }
+        }
+        return delta
     }
 
     /// Replace or insert a top-level YAML section. `body` should start with
@@ -542,8 +833,11 @@ final class ConfigManager {
                 i += 1
                 continue
             }
+            // A `- item` at the key's own indent still belongs to it (YAML
+            // allows an unindented block sequence there, and the flow
+            // normalizer emits that shape).
             let indent = String(line.prefix { $0 == " " || $0 == "\t" })
-            guard indent.count > keyIndent.count, trimmed.hasPrefix("-") else { break }
+            guard indent.count >= keyIndent.count, trimmed.hasPrefix("-") else { break }
             let entry = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
             if isSelfReference(entry) {
                 drop.append(i)
@@ -745,12 +1039,14 @@ final class ConfigManager {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("subscriptions:")
                 && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
         }) else { return }
-        // Find end: next top-level key or end of file
+        // Find end: next top-level key or end of file (a column-0 `}` / `]`
+        // closing a multi-line flow value belongs to the section)
         var end = lines.count
         for i in (start + 1)..<lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
+            if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t")
+                && !trimmed.hasPrefix("}") && !trimmed.hasPrefix("]") {
                 end = i
                 break
             }
@@ -827,6 +1123,39 @@ final class ConfigManager {
         }
     }
 
+    /// Detach the subscription from `config.yaml` — the inverse of
+    /// `applySubscriptionConfig`. Keeps the header (ports, `dns:` as the user
+    /// last saved it), puts the built-in default proxies / proxy-groups /
+    /// rules back, and drops any providers. Returns the YAML that was saved.
+    /// See `loadBaseConfig` for when this must run.
+    @discardableResult
+    func clearSubscriptionConfig() throws -> String {
+        let base = (try? loadConfig()) ?? defaultConfig()
+        let cleared = Self.clearingSubscription(
+            from: base, defaultConfig: defaultConfig(),
+            engineMode: EngineMode.load(from: AppConstants.sharedDefaults)
+        )
+        try saveConfig(cleared)
+        return cleared
+    }
+
+    /// Pure half of `clearSubscriptionConfig`: merges the defaults' own
+    /// proxies / proxy-groups / rules over `baseConfig` exactly as a
+    /// subscription would be, so the header (a user-edited `dns:` included)
+    /// survives and every subscription-owned section — providers included —
+    /// is gone. The default `dns:` is deliberately not part of the stub, so
+    /// unlike a real subscription it never replaces the user's DNS.
+    static func clearingSubscription(
+        from baseConfig: String, defaultConfig: String, engineMode: EngineMode = .vpn
+    ) -> String {
+        let keys = ["proxies", "proxy-groups", "rules"]
+        let stock = extractYAMLSections(from: defaultConfig, named: keys)
+        let stub = keys.compactMap { stock[$0] }.joined(separator: "\n\n")
+        return mergeSubscription(
+            stub, baseConfig: baseConfig, defaultConfig: defaultConfig, engineMode: engineMode
+        )
+    }
+
     /// Off-main wrapper for `validateSubscriptionConfig`. SwiftUI views are
     /// MainActor, so a plain `Task {}` in a view runs on the main thread —
     /// and validation is synchronous engine work plus (worst case) bounded
@@ -868,8 +1197,12 @@ final class ConfigManager {
         return err?.localizedDescription
     }
 
-    /// Merge subscription YAML: take proxies, proxy-groups, rules, and their providers from subscription.
-    private func mergeSubscription(_ yaml: String) -> String {
+    /// Merge subscription YAML into the saved base without writing anything:
+    /// take proxies, proxy-groups, rules, and their providers from the
+    /// subscription, the header from `config.yaml`. `applySubscriptionConfig`
+    /// is this plus `saveConfig`; the Config Editor uses the unsaved form to
+    /// render the read-only subscription view.
+    func mergeSubscription(_ yaml: String) -> String {
         let base = (try? loadConfig()) ?? defaultConfig()
         return ConfigManager.mergeSubscription(
             yaml, baseConfig: base, defaultConfig: defaultConfig(),
@@ -1001,15 +1334,20 @@ final class ConfigManager {
     }
 
     /// Set interval to 0 in provider sections so Mihomo won't auto-refresh subscription URLs.
+    /// Only each provider's own `interval:` is rewritten; a nested one
+    /// (`health-check: {interval: 300}`) is the provider's business.
     static func disableProviderRefresh(_ section: String) -> String {
-        section.components(separatedBy: "\n").map { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("interval:") {
+        guard let (header, blocks) = splitProviderBlocks(section) else { return section }
+        let rewritten = blocks.flatMap { block -> [String] in
+            let depth = providerChildIndent(of: block)
+            return block.map { line in
                 let indent = line.prefix(while: { $0 == " " || $0 == "\t" })
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard indent.count == depth, trimmed.hasPrefix("interval:") else { return line }
                 return indent + "interval: 0"
             }
-            return line
-        }.joined(separator: "\n")
+        }
+        return ([header] + rewritten).joined(separator: "\n")
     }
 
     /// Validate/sanitize subscription-controlled provider entries
@@ -1028,8 +1366,25 @@ final class ConfigManager {
     /// special-cases the `url:`/`path:` keys and otherwise passes provider
     /// blocks through untouched. Valid providers are preserved as-is.
     static func sanitizeProviders(_ section: String) -> String {
+        guard let (header, blocks) = splitProviderBlocks(section) else { return section }
+        let kept = blocks.compactMap { sanitizeProviderBlock($0) }
+        guard !kept.isEmpty else { return header }
+        return ([header] + kept.flatMap { $0 }).joined(separator: "\n")
+    }
+
+    /// Split a `proxy-providers:` / `rule-providers:` section into its
+    /// header line and one line group per provider entry (each starting
+    /// at the `name:` line). Flow-style entries are first re-emitted in
+    /// block style: `p: {type: http, url: file:///…}` keeps its `url:` /
+    /// `path:` off their own lines, which would let it slip past the
+    /// checks untouched. Nil when the section has no entries.
+    private static func splitProviderBlocks(_ section: String) -> (String, [[String]])? {
+        var section = section
+        if let key = mappingKeyName(section.components(separatedBy: "\n")[0]) {
+            normalizeFlowSection(&section, key: key, includingNested: true)
+        }
         var lines = section.components(separatedBy: "\n")
-        guard lines.count > 1 else { return section }
+        guard lines.count > 1 else { return nil }
         let header = lines.removeFirst()
 
         // The indentation of the first provider-name line (e.g. 2 spaces)
@@ -1038,7 +1393,7 @@ final class ConfigManager {
             .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
             .map({ line in line.prefix(while: { $0 == " " }).count })
         else {
-            return section
+            return nil
         }
 
         func isBlockStart(_ line: String) -> Bool {
@@ -1058,18 +1413,37 @@ final class ConfigManager {
             }
         }
         if !current.isEmpty { blocks.append(current) }
+        return (header, blocks)
+    }
 
-        let kept = blocks.compactMap { sanitizeProviderBlock($0) }
-        guard !kept.isEmpty else { return header }
-        return ([header] + kept.flatMap { $0 }).joined(separator: "\n")
+    /// Indentation of a provider entry's own keys: the first non-blank,
+    /// non-comment line after the `name:` line. Deeper lines belong to a
+    /// nested mapping such as `health-check:` or `header:`, whose `url:` /
+    /// `interval:` must not be mistaken for the provider's.
+    private static func providerChildIndent(of block: [String]) -> Int {
+        for line in block.dropFirst() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+            return line.prefix(while: { $0 == " " || $0 == "\t" }).count
+        }
+        return Int.max
     }
 
     /// Returns the (possibly rewritten) lines of a single provider block, or
-    /// nil if the whole block should be dropped (non-https `url:`).
+    /// nil if the whole block should be dropped (non-https `url:`). Only the
+    /// provider's first-level keys are inspected — `health-check: {url:
+    /// http://www.gstatic.com/generate_204}` is a probe target, not a
+    /// download URL, and must not get the provider dropped.
     private static func sanitizeProviderBlock(_ block: [String]) -> [String]? {
+        let depth = providerChildIndent(of: block)
         var result: [String] = []
         for line in block {
+            let indent = line.prefix { $0 == " " || $0 == "\t" }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard indent.count == depth else {
+                result.append(line)
+                continue
+            }
             if trimmed.hasPrefix("url:") {
                 let value = scalarValue(afterKey: "url", in: line)
                 guard value.lowercased().hasPrefix("https://") else { return nil }
@@ -1079,7 +1453,6 @@ final class ConfigManager {
             if trimmed.hasPrefix("path:") {
                 let value = scalarValue(afterKey: "path", in: line)
                 if value.contains("..") || value.hasPrefix("/") || value.hasPrefix("~") {
-                    let indent = line.prefix { $0 == " " || $0 == "\t" }
                     var safeName = (value as NSString).lastPathComponent
                         .replacingOccurrences(of: "..", with: "_")
                     if safeName.isEmpty || safeName == "/" {
@@ -1164,8 +1537,11 @@ final class ConfigManager {
             .replacingOccurrences(of: "\r", with: "\n")
 
         for line in normalized.components(separatedBy: "\n") {
+            // A column-0 `}` / `]` closes a multi-line flow collection and
+            // stays with the section it ends.
             let isTopLevel = !line.hasPrefix(" ") && !line.hasPrefix("\t")
                 && !line.isEmpty && !line.hasPrefix("-") && !line.hasPrefix("#")
+                && !line.hasPrefix("}") && !line.hasPrefix("]")
             if isTopLevel {
                 flush()
                 let key = String(line.prefix(while: { $0 != ":" }))
@@ -1189,7 +1565,7 @@ final class ConfigManager {
         // mixed-port / dns.listen / external-controller values below are
         // placeholders only — the bridge forces SOCKS/DNS/API ports at
         // runtime. allow-lan / bind-address / mixed-port are rewritten by
-        // VPNManager.buildEffectiveConfigYAML from LANSharingSettings.
+        // ConfigManager.buildEffectiveConfig from LANSharingSettings.
         return """
         mixed-port: 0
         mode: rule
@@ -1281,18 +1657,65 @@ final class ConfigManager {
     }
 }
 
+// MARK: - Engine runtime settings
+
+/// Per-start settings layered onto the saved base config by
+/// `ConfigManager.buildEffectiveConfig`. Read from UserDefaults at start
+/// time; never written into `config.yaml`.
+struct EngineRuntimeSettings {
+    var logLevel: String?
+    var proxyMode: String = "rule"
+    var lanSharing: LANSharingSettings = LANSharingSettings()
+    var localProxyPort: UInt16 = UInt16(AppConstants.defaultLocalProxyPort)
+
+    static func load(from defaults: UserDefaults = AppConstants.sharedDefaults) -> EngineRuntimeSettings {
+        EngineRuntimeSettings(
+            logLevel: defaults.string(forKey: "logLevel"),
+            proxyMode: defaults.string(forKey: "proxyMode") ?? "rule",
+            lanSharing: LANSharingSettings.load(from: defaults),
+            localProxyPort: AppConstants.localProxyPort
+        )
+    }
+}
+
 // MARK: - Editable Config Models
 
-struct EditableProxyGroup: Identifiable {
+struct EditableProxyGroup: Identifiable, Equatable {
     var id = UUID()
     var name: String
     var type: String
     var proxies: [String]
     var url: String?
     var interval: Int?
+    /// Group fields the structured editor does not model (`use`, `filter`,
+    /// `lazy`, `tolerance`, `include-all`, …), in source order. They are
+    /// re-emitted verbatim on save so a structured edit — or a mere
+    /// Structured → Raw switch — cannot strip provider-backed membership
+    /// or tuning options the editor never showed.
+    var extraFields: [ProxyGroupField] = []
+
+    /// Keys the structured editor maps onto dedicated properties. Anything
+    /// else lands in `extraFields`.
+    static let modelledKeys: Set<String> = ["name", "type", "proxies", "url", "interval"]
+
+    /// Whether the group's members come from somewhere other than
+    /// `proxies:` — a provider list or an include-all flag. Such a group
+    /// legitimately has no `proxies:` key, so none is synthesized for it.
+    var hasProviderMembership: Bool {
+        extraFields.contains {
+            ["use", "include-all", "include-all-proxies", "include-all-providers"].contains($0.key)
+        }
+    }
 }
 
-struct EditableRule: Identifiable {
+/// One unmodelled `key: value` pair of a proxy group, held as a parsed
+/// YAML node so nested lists and mappings survive the round trip.
+struct ProxyGroupField: Hashable {
+    var key: String
+    var value: Yams.Node
+}
+
+struct EditableRule: Identifiable, Equatable {
     var id = UUID()
     var type: String
     var value: String
@@ -1305,18 +1728,37 @@ struct EditableRule: Identifiable {
 extension ConfigManager {
 
     func parseProxyGroups(from yaml: String) -> [EditableProxyGroup] {
-        guard let dict = (try? Yams.load(yaml: yaml)) as? [String: Any],
-              let groupList = dict["proxy-groups"] as? [[String: Any]] else {
+        // Composed nodes (not `Yams.load`'s `[String: Any]`) so unmodelled
+        // fields keep their order, nesting, and scalar quoting for re-emit.
+        guard let root = try? Yams.compose(yaml: yaml),
+              let groupList = root["proxy-groups"]?.sequence else {
             return []
         }
         return groupList.compactMap { group -> EditableProxyGroup? in
-            guard let name = group["name"] as? String,
-                  let type = group["type"] as? String else { return nil }
-            let proxies = group["proxies"] as? [String] ?? []
-            let url = group["url"] as? String
-            let interval = group["interval"] as? Int
-            return EditableProxyGroup(name: name, type: type, proxies: proxies, url: url, interval: interval)
+            guard let mapping = group.mapping,
+                  let name = mapping["name"]?.string,
+                  let type = mapping["type"]?.string else { return nil }
+            let proxies = mapping["proxies"]?.sequence?.compactMap(\.string) ?? []
+            let url = Self.presentScalar(mapping["url"])?.string
+            let interval = mapping["interval"]?.int
+            let extras = mapping.compactMap { pair -> ProxyGroupField? in
+                guard let key = pair.key.string,
+                      !EditableProxyGroup.modelledKeys.contains(key) else { return nil }
+                return ProxyGroupField(key: key, value: pair.value)
+            }
+            return EditableProxyGroup(
+                name: name, type: type, proxies: proxies, url: url, interval: interval,
+                extraFields: extras
+            )
         }
+    }
+
+    /// `node`'s scalar unless it is a YAML null (`url: null`, `url: ~`,
+    /// or a bare `url:`), whose `Node.string` would still hand back the
+    /// raw text and re-emit it as the string `"null"`.
+    private static func presentScalar(_ node: Yams.Node?) -> Yams.Node.Scalar? {
+        guard let scalar = node?.scalar, NSNull.construct(from: scalar) == nil else { return nil }
+        return scalar
     }
 
     func parseRules(from yaml: String) -> [EditableRule] {
@@ -1364,7 +1806,8 @@ extension ConfigManager {
         while endIdx < lines.count {
             let line = lines[endIdx]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !line.hasPrefix(" ") && !line.hasPrefix("\t") && !trimmed.isEmpty && !trimmed.hasPrefix("#") {
+            if !line.hasPrefix(" ") && !line.hasPrefix("\t") && !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                && !trimmed.hasPrefix("}") && !trimmed.hasPrefix("]") {
                 break
             }
             endIdx += 1
@@ -1415,16 +1858,33 @@ extension ConfigManager {
             if let interval = group.interval {
                 result.append("    interval: \(interval)")
             }
-            if group.proxies.isEmpty {
-                result.append("    proxies: []")
-            } else {
+            if !group.proxies.isEmpty {
                 result.append("    proxies:")
                 for proxy in group.proxies {
                     result.append("      - \(Self.yamlQuotedString(proxy))")
                 }
+            } else if !group.hasProviderMembership {
+                result.append("    proxies: []")
+            }
+            for field in group.extraFields {
+                result.append(contentsOf: Self.serializeProxyGroupField(field))
             }
         }
         return result
+    }
+
+    /// Emit one unmodelled group field as indented YAML lines. The node is
+    /// serialized on its own (`use: [p]`, `filter: test`, a block list…)
+    /// and every line shifted under the group entry, which keeps nested
+    /// structure intact whatever its style.
+    private static func serializeProxyGroupField(_ field: ProxyGroupField) -> [String] {
+        let node = Yams.Node.mapping(Yams.Node.Mapping([(Yams.Node(field.key), field.value)]))
+        // Unlimited width and raw unicode: a `filter: "(?i)香港|HK"` regex
+        // must not come back as `\u9999\u6E2F` folded across lines.
+        guard let text = try? Yams.serialize(node: node, width: -1, allowUnicode: true) else { return [] }
+        var lines = text.components(separatedBy: "\n")
+        while lines.last?.isEmpty == true { lines.removeLast() }
+        return lines.map { "    " + $0 }
     }
 
     private func serializeRules(_ rules: [EditableRule]) -> [String] {

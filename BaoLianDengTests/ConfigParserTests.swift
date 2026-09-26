@@ -4,6 +4,7 @@
 
 import Foundation
 import Testing
+import Yams
 @testable import BaoLianDeng
 
 // MARK: - YAML Section Extraction
@@ -115,6 +116,26 @@ struct ExtractYAMLSectionsTests {
         #expect(proxies.contains("node2"))
     }
 
+    @Test("A column-0 flow closer stays with its section")
+    func flowCloserStaysWithSection() {
+        let yaml = """
+        dns: {
+          enable: true,
+          nameserver: [1.1.1.1]
+        }
+        proxies: [
+        ]
+        rules:
+          - MATCH,DIRECT
+        """
+        let sections = ConfigManager.extractYAMLSections(
+            from: yaml, named: ["dns", "proxies", "rules"]
+        )
+        #expect(sections["dns"] == "dns: {\n  enable: true,\n  nameserver: [1.1.1.1]\n}")
+        #expect(sections["proxies"] == "proxies: [\n]")
+        #expect(sections["rules"] == "rules:\n  - MATCH,DIRECT")
+    }
+
     @Test("Indented lines not treated as top-level keys")
     func indentedLinesNotTopLevel() {
         // Regression: YAML generated with leading spaces should not match top-level keys
@@ -222,6 +243,62 @@ struct MergeSubscriptionTests {
         #expect(merged.contains("enhanced-mode: fake-ip"))
         #expect(merged.contains("fake-ip-range: 28.0.0.0/8"))
         #expect(!merged.contains("redir-host"))
+    }
+
+    @Test("Multi-line flow dns from a subscription is patched into a valid block")
+    func subscriptionMultiLineFlowDNS() throws {
+        let sub = """
+        proxies: []
+        dns: {
+          enable: true,
+          nameserver: [1.1.1.1]
+        }
+        rules:
+          - MATCH,DIRECT
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let dict = try #require((try? Yams.load(yaml: merged)) as? [String: Any], "merged must parse:\n\(merged)")
+        let dns = try #require(dict["dns"] as? [String: Any])
+        #expect(dns["enhanced-mode"] as? String == "fake-ip")
+        #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
+        #expect(dict["rules"] as? [String] == ["MATCH,DIRECT"])
+        #expect(merged.components(separatedBy: "dns:").count - 1 == 1)
+    }
+
+    @Test("A provider with an inline http health-check survives the merge")
+    func subscriptionProviderWithInlineHealthCheck() throws {
+        let sub = """
+        proxies: []
+        proxy-providers:
+          good:
+            type: http
+            url: https://example.com/sub.yaml
+            path: ./providers/good.yaml
+            interval: 3600
+            health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}
+        proxy-groups:
+          - name: Auto
+            type: url-test
+            use: [good]
+            url: http://www.gstatic.com/generate_204
+            interval: 300
+        rules:
+          - MATCH,Auto
+        """
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: Self.baseConfig, defaultConfig: Self.defaultConfig
+        )
+        let dict = try #require((try? Yams.load(yaml: merged)) as? [String: Any], "merged must parse:\n\(merged)")
+        let providers = try #require(dict["proxy-providers"] as? [String: Any], "providers section missing:\n\(merged)")
+        let good = try #require(providers["good"] as? [String: Any], "provider dropped:\n\(merged)")
+        #expect(good["url"] as? String == "https://example.com/sub.yaml")
+        #expect(good["interval"] as? Int == 0)
+        #expect((good["health-check"] as? [String: Any])?["url"] as? String == "http://www.gstatic.com/generate_204")
+        #expect((good["health-check"] as? [String: Any])?["interval"] as? Int == 300)
+        let groups = try #require(dict["proxy-groups"] as? [[String: Any]])
+        #expect(groups.contains { $0["name"] as? String == "Auto" && $0["use"] as? [String] == ["good"] })
     }
 
     @Test("Falls back to default rules when subscription has none")
@@ -685,6 +762,154 @@ struct ForceManagedDNSTests {
         #expect(config == once)
         #expect(config.components(separatedBy: "dns:").count - 1 == 1)
     }
+
+    // MARK: Inline (flow-style) dns mappings — issue #113 finding 5
+
+    /// `dns:` section of `config` as parsed by a real YAML parser, or nil
+    /// when the document no longer parses at all.
+    private func dnsMapping(_ config: String) -> [String: Any]? {
+        guard let dict = (try? Yams.load(yaml: config)) as? [String: Any] else { return nil }
+        return dict["dns"] as? [String: Any]
+    }
+
+    @Test("Patches an inline dns mapping into valid block YAML")
+    func normalizesInlineDNSMapping() throws {
+        var config = """
+        proxies: []
+        proxy-groups: []
+        rules:
+          - MATCH,DIRECT
+        dns: {enable: true, nameserver: [1.1.1.1]}
+        """
+        ConfigManager.forceManagedDNS(&config)
+        let dns = try #require(dnsMapping(config), "sanitized config must stay parseable: \(config)")
+        #expect(dns["enable"] as? Bool == true)
+        #expect(dns["listen"] as? String == "127.0.0.1:0")
+        #expect(dns["enhanced-mode"] as? String == "fake-ip")
+        #expect(dns["fake-ip-range"] as? String == "28.0.0.0/8")
+        #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
+        #expect(config.contains("rules:\n  - MATCH,DIRECT"))
+
+        let once = config
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config == once, "second pass must be a no-op")
+    }
+
+    @Test("Inline and block dns sections come out equivalent")
+    func inlineMatchesBlock() throws {
+        var inline = "mode: rule\ndns: {enable: false, listen: 0.0.0.0:53, nameserver: [1.1.1.1, 8.8.8.8], fallback: [tls://9.9.9.9]}\nproxies: []"
+        var block = """
+        mode: rule
+        dns:
+          enable: false
+          listen: 0.0.0.0:53
+          nameserver:
+            - 1.1.1.1
+            - 8.8.8.8
+          fallback:
+            - tls://9.9.9.9
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&inline)
+        ConfigManager.forceManagedDNS(&block)
+        let a = try #require(dnsMapping(inline))
+        let b = try #require(dnsMapping(block))
+        #expect((a as NSDictionary).isEqual(to: b))
+        #expect(a["nameserver"] as? [String] == ["1.1.1.1", "8.8.8.8"])
+        #expect(a["fallback"] as? [String] == ["tls://9.9.9.9"])
+    }
+
+    @Test("Inline dns in local proxy mode gets redir-host")
+    func inlineLocalProxy() throws {
+        var config = "dns: {enable: true, fake-ip-range: 198.18.0.1/16, nameserver: [1.1.1.1]}\nproxies: []"
+        ConfigManager.forceManagedDNS(&config, engineMode: .localProxy)
+        let dns = try #require(dnsMapping(config))
+        #expect(dns["enhanced-mode"] as? String == "redir-host")
+        #expect(dns["fake-ip-range"] == nil)
+        #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
+    }
+
+    @Test("Multi-line flow dns mapping and a trailing comment survive")
+    func multiLineFlowMapping() throws {
+        var config = """
+        dns: {
+          enable: true,
+          nameserver: [1.1.1.1],
+          nameserver-policy: {"geosite:cn": 223.5.5.5}
+        }
+        # trailing note
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        let dns = try #require(dnsMapping(config))
+        #expect(dns["enhanced-mode"] as? String == "fake-ip")
+        #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
+        #expect((dns["nameserver-policy"] as? [String: Any])?["geosite:cn"] as? String == "223.5.5.5")
+        #expect(config.contains("# trailing note\nproxies: []"))
+    }
+
+    @Test("Empty inline dns mapping is filled in")
+    func emptyInlineMapping() throws {
+        var config = "dns: {}\nproxies: []"
+        ConfigManager.forceManagedDNS(&config)
+        let dns = try #require(dnsMapping(config))
+        #expect(dns["enable"] as? Bool == true)
+        #expect(dns["enhanced-mode"] as? String == "fake-ip")
+    }
+
+    @Test("Inline self-referential proxy-server-nameserver is dropped after normalization")
+    func inlineSelfReferenceDropped() throws {
+        var config = "dns: {enable: true, listen: 127.0.0.1:1053, nameserver: [1.1.1.1], proxy-server-nameserver: [udp://127.0.0.1:1053, 8.8.8.8]}\nproxies: []"
+        ConfigManager.forceManagedDNS(&config)
+        let dns = try #require(dnsMapping(config))
+        #expect(dns["proxy-server-nameserver"] as? [String] == ["8.8.8.8"])
+        #expect(dns["listen"] as? String == "127.0.0.1:0")
+    }
+
+    @Test("Block dns with nested flow values is patched in place, comments kept")
+    func blockWithNestedFlowUntouched() throws {
+        var config = """
+        dns:
+          # keep me
+          enable: true
+          nameserver-policy: {"geosite:cn": 223.5.5.5}
+          nameserver: [1.1.1.1]
+        proxies: []
+        """
+        ConfigManager.forceManagedDNS(&config)
+        #expect(config.contains("  # keep me"))
+        #expect(config.contains("nameserver-policy: {\"geosite:cn\": 223.5.5.5}"))
+        let dns = try #require(dnsMapping(config))
+        #expect(dns["enhanced-mode"] as? String == "fake-ip")
+        #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
+    }
+
+    @Test("Multi-line flow dns whose entries sit at column 0 is followed to its closer")
+    func columnZeroFlowContinuation() throws {
+        var config = """
+        dns: {
+        enable: true,
+        nameserver: [1.1.1.1], # "brace }" inside a comment must not close it
+        fallback: ["8.8.8.8"]
+        }
+        proxies: []
+        rules:
+          - MATCH,DIRECT
+        """
+        #expect((try? Yams.load(yaml: config)) != nil, "input must be valid YAML")
+        ConfigManager.forceManagedDNS(&config)
+        let dns = try #require(dnsMapping(config), "must stay parseable:\n\(config)")
+        #expect(dns["enhanced-mode"] as? String == "fake-ip")
+        #expect(dns["nameserver"] as? [String] == ["1.1.1.1"])
+        #expect(dns["fallback"] as? [String] == ["8.8.8.8"])
+        let dict = (try? Yams.load(yaml: config)) as? [String: Any]
+        #expect(dict?["rules"] as? [String] == ["MATCH,DIRECT"])
+        #expect(dict?["proxies"] is [Any])
+        let again = config
+        var repeated = config
+        ConfigManager.forceManagedDNS(&repeated)
+        #expect(repeated == again)
+    }
 }
 
 @Suite("Proxy group serialization")
@@ -718,6 +943,188 @@ struct ProxyGroupSerializationTests {
         #expect(parsed[0].proxies == ["proxy: one", "line\nbreak"])
     }
 
+    // MARK: Unmodelled group fields — issue #113 finding 4
+
+    private let providerBackedConfig = """
+    proxy-providers:
+      provider:
+        type: http
+        url: https://example.com/sub.yaml
+        path: ./providers/provider.yaml
+    proxy-groups:
+      - name: Auto
+        type: url-test
+        use: [provider]
+        filter: test
+        exclude-filter: "slow|backup"
+        lazy: true
+        tolerance: 50
+        url: https://www.gstatic.com/generate_204
+        interval: 300
+      - name: Manual
+        type: select
+        include-all: true
+        proxies:
+          - Auto
+          - DIRECT
+      - name: Balance
+        type: load-balance
+        strategy: consistent-hashing
+        use:
+          - provider
+        expected-status: "204"
+    rules:
+      - MATCH,Manual
+    """
+
+    /// `proxy-groups` as generic parsed values, for semantic comparison.
+    private func groupDicts(_ yaml: String) -> [[String: Any]] {
+        ((try? Yams.load(yaml: yaml)) as? [String: Any])?["proxy-groups"] as? [[String: Any]] ?? []
+    }
+
+    @Test("Parsing keeps provider-group fields the editor does not model")
+    func parsesUnmodelledFields() {
+        let groups = ConfigManager.shared.parseProxyGroups(from: providerBackedConfig)
+        #expect(groups.count == 3)
+        #expect(groups[0].proxies.isEmpty)
+        #expect(groups[0].url == "https://www.gstatic.com/generate_204")
+        #expect(groups[0].interval == 300)
+        #expect(groups[0].extraFields.map(\.key) == ["use", "filter", "exclude-filter", "lazy", "tolerance"])
+        #expect(groups[0].extraFields.first?.value.array().compactMap(\.string) == ["provider"])
+        #expect(groups[1].extraFields.map(\.key) == ["include-all"])
+        #expect(groups[1].proxies == ["Auto", "DIRECT"])
+        #expect(groups[2].extraFields.map(\.key) == ["strategy", "use", "expected-status"])
+    }
+
+    @Test("No-edit round trip is semantically identical")
+    func noEditRoundTripPreservesGroups() {
+        let groups = ConfigManager.shared.parseProxyGroups(from: providerBackedConfig)
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: providerBackedConfig)
+
+        let before = groupDicts(providerBackedConfig)
+        let after = groupDicts(rewritten)
+        #expect(after.count == 3)
+        #expect((after as NSArray).isEqual(to: before), "rewritten groups differ:\n\(rewritten)")
+
+        // A provider-backed group must not gain an empty `proxies: []`.
+        #expect(after[0]["proxies"] == nil)
+        #expect(after[0]["use"] as? [String] == ["provider"])
+        #expect(after[0]["filter"] as? String == "test")
+        #expect(after[0]["lazy"] as? Bool == true)
+        #expect(after[0]["tolerance"] as? Int == 50)
+        #expect(after[2]["expected-status"] as? String == "204")
+
+        // Untouched sections are byte-identical.
+        #expect(rewritten.hasPrefix("proxy-providers:\n  provider:\n"))
+        #expect(rewritten.hasSuffix("rules:\n  - MATCH,Manual"))
+
+        // And a second round trip is stable.
+        let again = ConfigManager.shared.updateProxyGroups(
+            ConfigManager.shared.parseProxyGroups(from: rewritten), in: rewritten
+        )
+        #expect(again == rewritten)
+    }
+
+    @Test("Editing a modelled property leaves the other fields intact")
+    func editKeepsUnmodelledFields() {
+        var groups = ConfigManager.shared.parseProxyGroups(from: providerBackedConfig)
+        groups[0].interval = 600
+        groups[0].name = "Auto (fast)"
+        groups[1].proxies.append("REJECT")
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: providerBackedConfig)
+        let after = groupDicts(rewritten)
+
+        #expect(after[0]["name"] as? String == "Auto (fast)")
+        #expect(after[0]["interval"] as? Int == 600)
+        #expect(after[0]["use"] as? [String] == ["provider"])
+        #expect(after[0]["filter"] as? String == "test")
+        #expect(after[0]["exclude-filter"] as? String == "slow|backup")
+        #expect(after[0]["lazy"] as? Bool == true)
+        #expect(after[1]["proxies"] as? [String] == ["Auto", "DIRECT", "REJECT"])
+        #expect(after[1]["include-all"] as? Bool == true)
+        #expect(after[2]["strategy"] as? String == "consistent-hashing")
+    }
+
+    @Test("Nested mappings and quoted scalars in extra fields survive")
+    func nestedExtraFieldsSurvive() {
+        let yaml = """
+        proxy-groups:
+          - name: G
+            type: select
+            proxies: [a]
+            icon: "https://example.com/icon.png#x"
+            health-check: {enable: true, url: 'http://cp.cloudflare.com', interval: 60}
+            exclude-type: [ss, vmess]
+        """
+        let groups = ConfigManager.shared.parseProxyGroups(from: yaml)
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: yaml)
+        let after = groupDicts(rewritten)
+        #expect(after.count == 1)
+        #expect(after[0]["icon"] as? String == "https://example.com/icon.png#x")
+        let health = after[0]["health-check"] as? [String: Any]
+        #expect(health?["enable"] as? Bool == true)
+        #expect(health?["url"] as? String == "http://cp.cloudflare.com")
+        #expect(health?["interval"] as? Int == 60)
+        #expect(after[0]["exclude-type"] as? [String] == ["ss", "vmess"])
+        #expect(after[0]["proxies"] as? [String] == ["a"])
+    }
+
+    @Test("Non-ASCII and long extra scalars are re-emitted verbatim, not escaped or folded")
+    func unicodeExtraFieldsStayReadable() throws {
+        let long = String(repeating: "abcdefghij ", count: 12).trimmingCharacters(in: .whitespaces)
+        let yaml = """
+        proxy-groups:
+          - name: 香港
+            type: url-test
+            use: [机场]
+            filter: "(?i)香港|HK|Hong Kong"
+            exclude-filter: "\(long)"
+        """
+        var groups = ConfigManager.shared.parseProxyGroups(from: yaml)
+        groups[0].interval = 300
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: yaml)
+        #expect(rewritten.contains("filter: \"(?i)香港|HK|Hong Kong\""))
+        #expect(rewritten.contains("use: [机场]") || rewritten.contains("- 机场"))
+        #expect(!rewritten.contains("\\u"))
+        #expect(rewritten.contains("exclude-filter: \"\(long)\""))
+        let after = groupDicts(rewritten)
+        #expect(after[0]["filter"] as? String == "(?i)香港|HK|Hong Kong")
+        #expect(after[0]["exclude-filter"] as? String == long)
+        #expect(after[0]["use"] as? [String] == ["机场"])
+    }
+
+    @Test("A null url is dropped rather than re-emitted as the string \"null\"")
+    func nullModelledScalarIsOmitted() {
+        let yaml = """
+        proxy-groups:
+          - name: A
+            type: select
+            proxies: [DIRECT]
+            url: null
+          - name: B
+            type: select
+            proxies: [DIRECT]
+            url: ~
+          - name: C
+            type: select
+            proxies: [DIRECT]
+            url:
+        """
+        let groups = ConfigManager.shared.parseProxyGroups(from: yaml)
+        #expect(groups.map(\.url) == [nil, nil, nil])
+        let rewritten = ConfigManager.shared.updateProxyGroups(groups, in: yaml)
+        #expect(!rewritten.contains("null"))
+        #expect(!rewritten.contains("url:"))
+        #expect(groupDicts(rewritten).count == 3)
+    }
+
+    @Test("Groups built in the editor still serialize an empty proxies list")
+    func editorGroupsKeepEmptyProxies() {
+        let groups = [EditableProxyGroup(name: "Empty", type: "select", proxies: [])]
+        let yaml = ConfigManager.shared.updateProxyGroups(groups, in: "rules:\n  - MATCH,DIRECT")
+        #expect(yaml.contains("    proxies: []"))
+        #expect(groups[0].extraFields.isEmpty)
+    }
 }
 
 @Suite("Rule serialization")
@@ -875,6 +1282,20 @@ struct SanitizeConfigStringTests {
         #expect(config == once)
         #expect(config.components(separatedBy: "tun:").count - 1 == 1)
     }
+
+    @Test("Disables an inline tun mapping")
+    func disablesInlineTUN() throws {
+        var config = "tun: {enable: true, stack: system}\nproxies: []\nrules:\n  - MATCH,DIRECT"
+        ConfigManager.sanitizeConfigString(&config)
+        let dict = try #require((try? Yams.load(yaml: config)) as? [String: Any])
+        let tun = try #require(dict["tun"] as? [String: Any])
+        #expect(tun["enable"] as? Bool == false)
+        #expect(tun["stack"] as? String == "system")
+        #expect(config.components(separatedBy: "tun:").count - 1 == 1)
+        let once = config
+        ConfigManager.sanitizeConfigString(&config)
+        #expect(config == once)
+    }
 }
 
 // MARK: - Provider sanitization (untrusted subscription input)
@@ -991,6 +1412,145 @@ struct SanitizeProvidersTests {
         #expect(!result.contains("insecure"))
         #expect(!result.contains("rules1:"))
         #expect(result.contains("rule-providers:"))
+    }
+
+    @Test("Inline (flow-style) providers are still checked")
+    func sanitizesInlineProviders() throws {
+        let section = """
+        proxy-providers:
+          good: {type: http, url: "https://example.com/sub.yaml", path: ./providers/good.yaml, interval: 3600}
+          leak: {type: http, url: "file:///etc/passwd", path: ./providers/leak.yaml}
+          escape: {type: http, url: "https://example.com/e.yaml", path: ../../.ssh/id_rsa}
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(!result.contains("leak"))
+        #expect(!result.contains("file://"))
+        #expect(!result.contains("../../"))
+        let dict = try #require((try? Yams.load(yaml: result)) as? [String: Any])
+        let providers = try #require(dict["proxy-providers"] as? [String: Any])
+        #expect(Set(providers.keys) == ["good", "escape"])
+        let good = try #require(providers["good"] as? [String: Any])
+        #expect(good["url"] as? String == "https://example.com/sub.yaml")
+        #expect(good["path"] as? String == "./providers/good.yaml")
+        #expect(good["interval"] as? Int == 3600)
+        #expect((providers["escape"] as? [String: Any])?["path"] as? String == "id_rsa")
+    }
+
+    @Test("A fully inline providers section is still checked")
+    func sanitizesSingleLineProvidersSection() {
+        let section = "proxy-providers: {leak: {type: http, url: 'file:///etc/hosts', path: ./x.yaml}}"
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(!result.contains("file://"))
+        #expect(result.hasPrefix("proxy-providers:"))
+    }
+
+    @Test("A quoted provider name does not hide an inline provider from the checks")
+    func sanitizesQuotedKeyInlineProvider() {
+        let section = """
+        proxy-providers:
+          "leak": {type: http, url: 'file:///etc/hosts', path: ./x.yaml}
+          'leak2': {type: http, url: "http://evil/sub", path: ./y.yaml}
+          "ok # not a comment": {type: http, url: "https://example.com/sub", path: ../z.yaml}
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        #expect(!result.contains("file://"))
+        #expect(!result.contains("evil"))
+        #expect(!result.contains("../"))
+        #expect(result.contains("example.com/sub"))
+        #expect(result.contains("ok # not a comment"))
+    }
+
+    static let providerWithInlineHealthCheck = """
+    proxy-providers:
+      good:
+        type: http
+        url: https://example.com/sub.yaml
+        path: ./providers/good.yaml
+        interval: 3600
+        health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}
+        header: {User-Agent: [clash.meta], X-Note: ["http://not-a-provider-url"]}
+    """
+
+    @Test("A nested http health-check url does not get a block provider dropped")
+    func keepsProviderWithInlineHealthCheck() throws {
+        let result = ConfigManager.sanitizeProviders(Self.providerWithInlineHealthCheck)
+        let dict = try #require((try? Yams.load(yaml: result)) as? [String: Any], "must parse:\n\(result)")
+        let providers = try #require(dict["proxy-providers"] as? [String: Any])
+        let good = try #require(providers["good"] as? [String: Any], "provider must survive:\n\(result)")
+        #expect(good["url"] as? String == "https://example.com/sub.yaml")
+        #expect(good["path"] as? String == "./providers/good.yaml")
+        let health = try #require(good["health-check"] as? [String: Any])
+        #expect(health["enable"] as? Bool == true)
+        #expect(health["url"] as? String == "http://www.gstatic.com/generate_204")
+        #expect(health["interval"] as? Int == 300)
+        let header = try #require(good["header"] as? [String: Any])
+        #expect(header["User-Agent"] as? [String] == ["clash.meta"])
+    }
+
+    @Test("A block-style nested health-check url is not mistaken for the provider url either")
+    func keepsProviderWithBlockHealthCheck() throws {
+        let section = """
+        proxy-providers:
+          good:
+            type: http
+            url: https://example.com/sub.yaml
+            path: ./providers/good.yaml
+            health-check:
+              enable: true
+              url: http://www.gstatic.com/generate_204
+              interval: 300
+          bad:
+            type: http
+            url: http://evil.com/sub.yaml
+            path: ./providers/bad.yaml
+            health-check:
+              url: https://looks-fine.example/generate_204
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        // Block-style sections pass through verbatim.
+        #expect(result.contains("      url: http://www.gstatic.com/generate_204"))
+        #expect(result.contains("  good:"))
+        #expect(!result.contains("bad:"))
+        #expect(!result.contains("evil.com"))
+        #expect(!result.contains("looks-fine"))
+    }
+
+    @Test("A fully inline provider with a nested http health-check survives")
+    func keepsInlineProviderWithNestedHealthCheck() throws {
+        let section = """
+        proxy-providers:
+          good: {type: http, url: "https://example.com/sub.yaml", path: ./providers/good.yaml, health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}}
+        """
+        let result = ConfigManager.sanitizeProviders(section)
+        let dict = try #require((try? Yams.load(yaml: result)) as? [String: Any], "must parse:\n\(result)")
+        let providers = try #require(dict["proxy-providers"] as? [String: Any])
+        let good = try #require(providers["good"] as? [String: Any], "provider must survive:\n\(result)")
+        #expect((good["health-check"] as? [String: Any])?["url"] as? String == "http://www.gstatic.com/generate_204")
+    }
+
+    @Test("disableProviderRefresh zeroes only the provider's own interval")
+    func refreshDisableLeavesNestedInterval() throws {
+        let sanitized = ConfigManager.sanitizeProviders(Self.providerWithInlineHealthCheck)
+        let result = ConfigManager.disableProviderRefresh(sanitized)
+        let dict = try #require((try? Yams.load(yaml: result)) as? [String: Any], "must parse:\n\(result)")
+        let good = try #require((dict["proxy-providers"] as? [String: Any])?["good"] as? [String: Any])
+        #expect(good["interval"] as? Int == 0)
+        #expect((good["health-check"] as? [String: Any])?["interval"] as? Int == 300)
+
+        let block = """
+        rule-providers:
+          r:
+            type: http
+            url: https://example.com/r.yaml
+            path: ./r.yaml
+            interval: 86400
+            health-check:
+              interval: 60
+        """
+        let blockResult = ConfigManager.disableProviderRefresh(block)
+        #expect(blockResult.contains("    interval: 0"))
+        #expect(blockResult.contains("      interval: 60"))
+        #expect(!blockResult.contains("86400"))
     }
 }
 
@@ -1429,5 +1989,350 @@ struct BundledGeodataTests {
             let size = try #require(attributes[.size] as? NSNumber)
             #expect(size.intValue > 0)
         }
+    }
+}
+
+// MARK: - Effective config (issue #113)
+
+/// Regression coverage for madeye/BaoLianDeng#113: startup must run the
+/// user's saved `config.yaml`, not a rebuilt default / subscription merge.
+@Suite("buildEffectiveConfig")
+struct BuildEffectiveConfigTests {
+
+    /// A base the Config Editor could have saved: custom proxy, custom rule,
+    /// and a user-chosen DNS nameserver list.
+    static let editedBase = """
+    mixed-port: 0
+    mode: rule
+    log-level: info
+    allow-lan: false
+    bind-address: 127.0.0.1
+    external-controller: 127.0.0.1:0
+
+    geo-auto-update: false
+
+    dns:
+      enable: true
+      listen: 127.0.0.1:0
+      enhanced-mode: fake-ip
+      fake-ip-range: 28.0.0.0/8
+      nameserver:
+        - https://my.custom.dns/dns-query
+
+    proxies:
+      - {name: my-ss, type: ss, server: 10.9.8.7, port: 8388, cipher: aes-128-gcm, password: pw}
+
+    proxy-groups:
+      - name: PROXY
+        type: select
+        proxies:
+          - my-ss
+          - DIRECT
+
+    rules:
+      - DOMAIN-SUFFIX,my-custom-domain.example,PROXY
+      - MATCH,DIRECT
+    """
+
+    private func build(
+        _ base: String,
+        engineMode: EngineMode = .vpn,
+        logLevel: String? = nil,
+        proxyMode: String = "rule",
+        lan: LANSharingSettings = LANSharingSettings(),
+        localProxyPort: UInt16 = 7890
+    ) -> String {
+        ConfigManager.buildEffectiveConfig(
+            base: base, engineMode: engineMode,
+            settings: EngineRuntimeSettings(
+                logLevel: logLevel, proxyMode: proxyMode,
+                lanSharing: lan, localProxyPort: localProxyPort
+            )
+        )
+    }
+
+    @Test("Custom proxies, rules and DNS from the saved base survive (no subscription)")
+    func keepsUserEditsWithoutSubscription() {
+        let effective = build(Self.editedBase)
+        #expect(effective.contains("name: my-ss"))
+        #expect(effective.contains("DOMAIN-SUFFIX,my-custom-domain.example,PROXY"))
+        #expect(effective.contains("https://my.custom.dns/dns-query"))
+        // The built-in default rule set must not have been substituted in.
+        #expect(!effective.contains("DOMAIN-SUFFIX,google.com,PROXY"))
+        #expect(!effective.contains("MATCH,PROXY"))
+    }
+
+    @Test("Edits made on top of a merged subscription survive reconnect")
+    func keepsUserEditsOnTopOfSubscription() {
+        let sub = """
+        proxies:
+          - {name: sub-node, type: vless, server: 1.2.3.4, port: 443, uuid: u}
+        proxy-groups:
+          - name: Proxies
+            type: select
+            proxies:
+              - sub-node
+        rules:
+          - DOMAIN-SUFFIX,example.com,Proxies
+          - MATCH,DIRECT
+        """
+        let defaultCfg = ConfigManager.shared.defaultConfig()
+        // Selecting the subscription merges it INTO config.yaml …
+        let merged = ConfigManager.mergeSubscription(
+            sub, baseConfig: defaultCfg, defaultConfig: defaultCfg
+        )
+        // … and the user then adds a rule and a nameserver in the editor.
+        var edited = merged.replacingOccurrences(
+            of: "  - DOMAIN-SUFFIX,example.com,Proxies",
+            with: "  - DOMAIN-KEYWORD,user-added,Proxies\n  - DOMAIN-SUFFIX,example.com,Proxies"
+        )
+        edited = edited.replacingOccurrences(
+            of: "  nameserver:\n",
+            with: "  nameserver:\n    - tls://user.dns.example\n"
+        )
+        #expect(edited.contains("DOMAIN-KEYWORD,user-added,Proxies"))
+        #expect(edited.contains("tls://user.dns.example"))
+
+        let effective = build(edited)
+        #expect(effective.contains("name: sub-node"))
+        #expect(effective.contains("DOMAIN-KEYWORD,user-added,Proxies"))
+        #expect(effective.contains("DOMAIN-SUFFIX,example.com,Proxies"))
+        #expect(effective.contains("tls://user.dns.example"))
+    }
+
+    @Test("Runtime settings are layered on without touching user sections")
+    func appliesRuntimeSettings() {
+        let lan = LANSharingSettings()
+        let effective = build(
+            Self.editedBase, logLevel: "debug", proxyMode: "global", lan: lan
+        )
+        #expect(effective.contains("log-level: debug"))
+        #expect(effective.contains("mode: global"))
+        #expect(effective.contains("allow-lan: false"))
+        #expect(effective.contains("name: my-ss"))
+
+        var lanOn = LANSharingSettings()
+        lanOn.enabled = true
+        lanOn.proxyPort = 17890
+        let shared = build(Self.editedBase, lan: lanOn)
+        #expect(shared.contains("allow-lan: true"))
+        #expect(shared.contains("bind-address: 0.0.0.0"))
+        #expect(shared.contains("mixed-port: 17890"))
+
+        let local = build(Self.editedBase, engineMode: .localProxy, localProxyPort: 7891)
+        #expect(local.contains("mixed-port: 7891"))
+    }
+
+    @Test("Engine-mode DNS invariants are re-applied to a base saved in the other mode")
+    func reappliesDNSInvariantsForCurrentMode() {
+        // editedBase was saved while in VPN mode (fake-ip).
+        let local = build(Self.editedBase, engineMode: .localProxy)
+        #expect(local.contains("enhanced-mode: redir-host"))
+        #expect(!local.contains("fake-ip-range"))
+        #expect(local.contains("https://my.custom.dns/dns-query"))
+
+        let vpn = build(Self.editedBase, engineMode: .vpn)
+        #expect(vpn.contains("enhanced-mode: fake-ip"))
+        #expect(vpn.contains("fake-ip-range: 28.0.0.0/8"))
+    }
+
+    @Test("Sanitizer invariants hold on the effective config")
+    func sanitizerInvariants() throws {
+        let base = """
+        mode: rule
+        tun:
+          enable: true
+        geo-auto-update: true
+        subscriptions:
+          - url: https://example.com/sub
+        proxies: []
+        proxy-groups:
+          - name: PROXY
+            type: select
+            proxies:
+              - DIRECT
+        rules:
+          - MATCH,PROXY
+        """
+        let effective = build(base)
+        let parsed = try #require(try Yams.load(yaml: effective) as? [String: Any])
+        let tun = try #require(parsed["tun"] as? [String: Any])
+        #expect(tun["enable"] as? Bool == false)
+        #expect(effective.contains("geo-auto-update: false"))
+        #expect(!effective.contains("subscriptions:"))
+        // No dns: block in the base → the managed fallback is inserted.
+        #expect(effective.contains("enhanced-mode: fake-ip"))
+    }
+
+    @Test("A PROXY group is injected when the base's rules dangle on it")
+    func injectsProxyFallback() {
+        let base = """
+        mode: rule
+        proxies:
+          - {name: n1, type: ss, server: 1.1.1.1, port: 1, cipher: aes-128-gcm, password: p}
+        rules:
+          - MATCH,PROXY
+        """
+        let effective = build(base)
+        let groups = ConfigManager.shared.parseProxyGroups(from: effective)
+        #expect(groups.contains { $0.name == "PROXY" })
+    }
+}
+
+@Suite("Local proxy runtime directory")
+struct RuntimeDirectoryTests {
+
+    @Test("Preparing the runtime directory never rewrites the saved config.yaml")
+    func doesNotClobberSavedConfig() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("bld-runtime-test-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("mihomo", isDirectory: true)
+        let runtimeDir = configDir.appendingPathComponent("runtime", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let saved = "# user's saved config\nmode: rule\nproxies: []\n"
+        let savedURL = configDir.appendingPathComponent(AppConstants.configFileName)
+        try saved.write(to: savedURL, atomically: true, encoding: .utf8)
+
+        // A stand-in geodata file (any size) should get linked in beside the
+        // derived YAML.
+        let geoName = "\(ConfigManager.geodataFiles[0].name).\(ConfigManager.geodataFiles[0].ext)"
+        try Data("geo".utf8).write(to: configDir.appendingPathComponent(geoName))
+
+        let derived = "mode: global\nlog-level: debug\nproxies: []\n"
+        try ConfigManager.prepareRuntimeDirectory(
+            at: runtimeDir, geodataDir: configDir, runtimeYAML: derived
+        )
+
+        #expect(try String(contentsOf: savedURL, encoding: .utf8) == saved)
+        let runtimeConfig = runtimeDir.appendingPathComponent(AppConstants.configFileName)
+        #expect(try String(contentsOf: runtimeConfig, encoding: .utf8) == derived)
+        #expect(FileManager.default.fileExists(atPath: runtimeDir.appendingPathComponent(geoName).path))
+
+        // Re-preparing (next start) replaces the derived file and re-links
+        // geodata without erroring on the existing entries.
+        try Data("geo-v2".utf8).write(to: configDir.appendingPathComponent(geoName))
+        try ConfigManager.prepareRuntimeDirectory(
+            at: runtimeDir, geodataDir: configDir, runtimeYAML: derived + "allow-lan: true\n"
+        )
+        #expect(try String(contentsOf: savedURL, encoding: .utf8) == saved)
+        #expect(try Data(contentsOf: runtimeDir.appendingPathComponent(geoName)) == Data("geo-v2".utf8))
+    }
+
+    @Test("Runtime directory is a child of the config directory, distinct from config.yaml")
+    func runtimeDirectoryLayout() throws {
+        let configDir = try #require(ConfigManager.shared.configDirectoryURL)
+        let runtimeDir = try #require(ConfigManager.shared.runtimeDirectoryURL)
+        #expect(runtimeDir.deletingLastPathComponent().standardizedFileURL == configDir.standardizedFileURL)
+        #expect(runtimeDir.appendingPathComponent(AppConstants.configFileName) != ConfigManager.shared.configFileURL)
+    }
+}
+
+/// The counterpart of the "merged INTO config.yaml" model: once the selection
+/// goes away (selected subscription deleted, or an unfetched one selected),
+/// the file must stop carrying the old subscription — startup no longer
+/// consults the selection, so nothing else would.
+@Suite("clearingSubscription")
+struct ClearingSubscriptionTests {
+
+    static let subscription = """
+    proxies:
+      - {name: sub-node, type: vless, server: 1.2.3.4, port: 443, uuid: u}
+    proxy-groups:
+      - name: Proxies
+        type: select
+        proxies:
+          - sub-node
+    proxy-providers:
+      remote:
+        type: http
+        url: https://example.com/nodes.yaml
+        path: nodes.yaml
+    rule-providers:
+      ads:
+        type: http
+        behavior: domain
+        url: https://example.com/ads.yaml
+        path: ads.yaml
+    rules:
+      - RULE-SET,ads,REJECT
+      - DOMAIN-SUFFIX,example.com,Proxies
+      - MATCH,DIRECT
+    dns:
+      enable: true
+      nameserver:
+        - https://sub.dns.example/dns-query
+    """
+
+    /// Simulate select → user edits the header → delete, and return the
+    /// cleared file.
+    private func cleared(engineMode: EngineMode = .vpn) -> String {
+        let defaultCfg = ConfigManager.shared.defaultConfig()
+        let merged = ConfigManager.mergeSubscription(
+            Self.subscription, baseConfig: defaultCfg, defaultConfig: defaultCfg
+        )
+        #expect(merged.contains("name: sub-node"))
+        #expect(merged.contains("https://sub.dns.example/dns-query"))
+        // The user then adds a nameserver in the editor on top of the merge.
+        let edited = merged.replacingOccurrences(
+            of: "  nameserver:\n",
+            with: "  nameserver:\n    - tls://user.dns.example\n"
+        )
+        #expect(edited.contains("tls://user.dns.example"))
+        return ConfigManager.clearingSubscription(
+            from: edited, defaultConfig: defaultCfg, engineMode: engineMode
+        )
+    }
+
+    @Test("Deleting the selected subscription puts the defaults back in the file")
+    func dropsSubscriptionSections() {
+        let result = cleared()
+        // Everything the subscription owned is gone …
+        #expect(!result.contains("sub-node"))
+        #expect(!result.contains("name: Proxies"))
+        #expect(!result.contains("proxy-providers:"))
+        #expect(!result.contains("rule-providers:"))
+        #expect(!result.contains("RULE-SET,ads,REJECT"))
+        #expect(!result.contains("DOMAIN-SUFFIX,example.com,Proxies"))
+        // … and the built-in defaults are what the next start runs.
+        #expect(result.contains("proxies: []"))
+        #expect(result.contains("DOMAIN-SUFFIX,google.com,PROXY"))
+        #expect(result.contains("MATCH,PROXY"))
+        let groups = ConfigManager.shared.parseProxyGroups(from: result)
+        #expect(groups.map(\.name) == ["PROXY"])
+        #expect(groups.first?.proxies == ["DIRECT"])
+        // The effective config the engine starts from agrees.
+        let effective = ConfigManager.buildEffectiveConfig(
+            base: result, engineMode: .vpn, settings: EngineRuntimeSettings()
+        )
+        #expect(!effective.contains("sub-node"))
+        #expect(effective.contains("MATCH,PROXY"))
+    }
+
+    @Test("Clearing keeps the header — including the user's DNS edits")
+    func keepsHeader() {
+        let result = cleared()
+        #expect(result.hasPrefix("mixed-port: 0\n"))
+        #expect(result.contains("geo-auto-update: false"))
+        // Unlike selecting a subscription, clearing never swaps in the
+        // defaults' dns block: what the user last saved stays.
+        #expect(result.contains("tls://user.dns.example"))
+        #expect(result.contains("https://sub.dns.example/dns-query"))
+        #expect(result.contains("enhanced-mode: fake-ip"))
+
+        let local = cleared(engineMode: .localProxy)
+        #expect(local.contains("enhanced-mode: redir-host"))
+        #expect(local.contains("tls://user.dns.example"))
+    }
+
+    @Test("Clearing a file that never had a subscription is a no-op on defaults")
+    func idempotentOnDefaults() {
+        let defaultCfg = ConfigManager.shared.defaultConfig()
+        let once = ConfigManager.clearingSubscription(from: defaultCfg, defaultConfig: defaultCfg)
+        let twice = ConfigManager.clearingSubscription(from: once, defaultConfig: defaultCfg)
+        #expect(once == twice)
+        #expect(once.contains("MATCH,PROXY"))
+        #expect(ConfigManager.shared.parseProxyGroups(from: once).map(\.name) == ["PROXY"])
     }
 }
