@@ -72,7 +72,6 @@
 		C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
 		CEE9200E5015BA697A46FD4A /* TransparentProxy.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* TransparentProxy.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
-		DFE148A5A01ECFEC5A64770A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = BD949DF6CA3380988A939F26 /* FirebaseAnalytics */; };
 		DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BaoLianDengApp.swift */; };
 		E4A1B2C3D5F6078E9A1B3C5D /* ConfigStyleHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* ConfigStyleHelpers.swift */; };
 		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
@@ -248,7 +247,6 @@
 				C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */,
 				599CCDA2D5B238AF73EDF62D /* Yams in Frameworks */,
 				229817DC4FF5F4C1B505EA5B /* FirebaseCore in Frameworks */,
-				DFE148A5A01ECFEC5A64770A /* FirebaseAnalytics in Frameworks */,
 				285CADD9EA77AC7AFB8A182A /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -533,7 +531,6 @@
 			packageProductDependencies = (
 				26E740A797906E5C84A95212 /* Yams */,
 				1C7E7C8B9AB9C840397D6E5B /* FirebaseCore */,
-				BD949DF6CA3380988A939F26 /* FirebaseAnalytics */,
 				2C3845EF76797DFD11D5207E /* FirebaseCrashlytics */,
 			);
 			productName = BaoLianDeng;
@@ -1134,11 +1131,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 38A424D3E90991ED0F5F3862 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCrashlytics;
-		};
-		BD949DF6CA3380988A939F26 /* FirebaseAnalytics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 38A424D3E90991ED0F5F3862 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalytics;
 		};
 		BDB2BE65B199185132229163 /* Yams */ = {
 			isa = XCSwiftPackageProductDependency;
