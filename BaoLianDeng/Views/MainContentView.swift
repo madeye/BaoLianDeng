@@ -23,6 +23,9 @@ struct MainContentView: View {
         .onAppear {
             vpnManager.checkExtensionStatus()
         }
+        .onChange(of: selection, initial: true) { _, item in
+            AnalyticsService.shared.logScreen((item ?? .subscriptions).rawValue)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             vpnManager.checkExtensionStatus()
         }

@@ -18,6 +18,7 @@ struct BaoLianDengApp: App {
             return
         }
         FirebaseApp.configure()
+        AnalyticsService.shared.start(vpnManager: VPNManager.shared)
         ConfigManager.shared.sanitizeConfig()
     }
 
