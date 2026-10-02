@@ -598,6 +598,16 @@
         }
       }
     },
+    "Helps improve BaoLianDeng with app usage counts and connection success rates. Never includes subscriptions, servers, or websites you visit.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帮助改进 BaoLianDeng：仅统计应用使用次数和连接成功率，绝不包含订阅、服务器或你访问的网站。"
+          }
+        }
+      }
+    },
     "Home": {
       "extractionState": "stale",
       "localizations": {
@@ -997,6 +1007,16 @@
       },
       "extractionState": "manual"
     },
+    "Privacy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私"
+          }
+        }
+      }
+    },
     "Proxies (%lld)": {
       "localizations": {
         "zh-Hans": {
@@ -1272,6 +1292,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "设置"
+          }
+        }
+      }
+    },
+    "Share Anonymous Usage Statistics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享匿名使用统计"
           }
         }
       }

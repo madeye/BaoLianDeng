@@ -92,6 +92,7 @@ struct AddSubscriptionView: View {
     }
 
     private func addSubscription() {
+        AnalyticsService.shared.log("subscription_add")
         let sub = Subscription(name: name, url: url, nodes: [])
         subscriptions.append(sub)
         let snapshot = subscriptions

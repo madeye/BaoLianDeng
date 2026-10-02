@@ -222,6 +222,7 @@ struct HomeView: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: selectedMode) { _, newMode in
+                AnalyticsService.shared.setProperty(newMode.rawValue, forName: "proxy_mode")
                 if vpnManager.isConnected {
                     // Live switch via REST API — no tunnel restart needed
                     Task {
@@ -329,6 +330,7 @@ struct HomeView: View {
     // MARK: - Helpers
 
     private func selectSubscription(_ sub: Subscription) {
+        AnalyticsService.shared.log("subscription_select")
         selectedSubscriptionID = sub.id
         AppConstants.sharedDefaults
             .set(sub.id.uuidString, forKey: "selectedSubscriptionID")
@@ -414,6 +416,7 @@ struct HomeView: View {
 
     private func saveSubscriptions() {
         let snapshot = subscriptions
+        AnalyticsService.shared.setSubscriptionCount(snapshot.count)
         Task.detached(priority: .background) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             AppConstants.sharedDefaults
@@ -443,6 +446,7 @@ struct HomeView: View {
                 do {
                     let result = try await fetchSubscription(from: url)
                     if let validationError = await ConfigManager.shared.validateSubscriptionConfigDetached(result.raw) {
+                        AnalyticsService.shared.logSubscriptionFetch(result: "invalid")
                         displayToast(String(format: String(localized: "Invalid: %@"), validationError))
                         AppLogger.ui.error("Validation failed for \(name, privacy: .public): \(validationError, privacy: .public)")
                         return
@@ -455,8 +459,10 @@ struct HomeView: View {
                     if let i = subscriptions.firstIndex(where: { $0.id == id }) {
                         selectSubscription(subscriptions[i])
                     }
+                    AnalyticsService.shared.logSubscriptionFetch(result: "success", nodeCount: result.nodes.count)
                     displayToast(String(format: String(localized: "Fetched %@"), name))
                 } catch {
+                    AnalyticsService.shared.logSubscriptionFetch(result: "error")
                     displayToast(String(format: String(localized: "Failed to fetch %@"), name))
                 }
             }
@@ -542,6 +548,7 @@ struct HomeView: View {
             proxyGroupsVM.reloadSelectionsForActiveSubscription()
             deletedSelected = true
         }
+        AnalyticsService.shared.log("subscription_delete", ["count": offsets.count])
         subscriptions.remove(atOffsets: offsets)
         saveSubscriptions()
         if deletedSelected {
@@ -563,6 +570,7 @@ struct HomeView: View {
                     if let i = subscriptions.firstIndex(where: { $0.id == id }) {
                         subscriptions[i].isUpdating = false
                     }
+                    AnalyticsService.shared.logSubscriptionFetch(result: "invalid")
                     displayToast(String(format: String(localized: "Invalid: %@"), validationError))
                     return
                 }
@@ -576,8 +584,10 @@ struct HomeView: View {
                     _ = try? ConfigManager.shared.applySubscriptionConfig(result.raw)
                     await Self.applyConfigByRestartingTunnel()
                 }
+                AnalyticsService.shared.logSubscriptionFetch(result: "success", nodeCount: result.nodes.count)
                 displayToast(String(format: String(localized: "Updated %@ (%lld nodes)"), name, result.nodes.count))
             } catch {
+                AnalyticsService.shared.logSubscriptionFetch(result: "error")
                 if let i = subscriptions.firstIndex(where: { $0.id == id }) {
                     subscriptions[i].isUpdating = false
                 }
@@ -610,13 +620,16 @@ struct HomeView: View {
                 case .success(let fetched):
                     if let validationError = await ConfigManager.shared.validateSubscriptionConfigDetached(fetched.raw) {
                         failed.append((subscriptions[i].name, "Invalid config: \(validationError)"))
+                        AnalyticsService.shared.logSubscriptionFetch(result: "invalid")
                     } else {
                         subscriptions[i].nodes = fetched.nodes
                         subscriptions[i].rawContent = fetched.raw
                         succeeded.append(subscriptions[i].name)
+                        AnalyticsService.shared.logSubscriptionFetch(result: "success", nodeCount: fetched.nodes.count)
                     }
                 case .failure(let error):
                     failed.append((subscriptions[i].name, error.localizedDescription))
+                    AnalyticsService.shared.logSubscriptionFetch(result: "error")
                 }
             }
         }

@@ -17,6 +17,8 @@ struct SettingsView: View {
     private var localProxyPort = AppConstants.defaultLocalProxyPort
     @AppStorage(AppConstants.localProxySetsSystemProxyKey, store: AppConstants.sharedDefaults)
     private var localProxySetsSystemProxy = true
+    @AppStorage(AnalyticsService.enabledKey, store: AppConstants.sharedDefaults)
+    private var analyticsEnabled = true
     @State private var startupErrorMessage: String?
 
     var body: some View {
@@ -82,6 +84,17 @@ struct SettingsView: View {
                     }
                     .foregroundStyle(.red)
                 }
+            }
+
+            Section {
+                Toggle("Share Anonymous Usage Statistics", isOn: $analyticsEnabled)
+                    .onChange(of: analyticsEnabled) { _, newValue in
+                        AnalyticsService.shared.setCollectionEnabled(newValue)
+                    }
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text("Helps improve BaoLianDeng with app usage counts and connection success rates. Never includes subscriptions, servers, or websites you visit.")
             }
 
             Section("About") {

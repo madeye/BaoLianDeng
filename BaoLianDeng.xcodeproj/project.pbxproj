@@ -46,6 +46,7 @@
 		LS100004 /* LANSharingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10098 /* LANSharingSection.swift */; };
 		LS100005 /* LANSharingSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10099 /* LANSharingSettingsTests.swift */; };
 		LP100004 /* EngineModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = LP100003 /* EngineModeTests.swift */; };
+		AN100003 /* AnalyticsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AN100002 /* AnalyticsServiceTests.swift */; };
 		A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UDPNATRelay.swift */; };
 		A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* TrafficStore.swift */; };
 		B10063 /* MihomoAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* MihomoAPI.swift */; };
@@ -74,6 +75,7 @@
 		D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
 		DFE148A5A01ECFEC5A64770A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = BD949DF6CA3380988A939F26 /* FirebaseAnalytics */; };
 		DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BaoLianDengApp.swift */; };
+		AN100001 /* AnalyticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AN100000 /* AnalyticsService.swift */; };
 		E4A1B2C3D5F6078E9A1B3C5D /* ConfigStyleHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* ConfigStyleHelpers.swift */; };
 		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
 		F0MAIN0001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881BF3538A657F9F7F3951E8 /* main.swift */; };
@@ -169,6 +171,7 @@
 		8A37D4B4A6176DB152B15D42 /* BaoLianDeng.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BaoLianDeng.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9677D8DCB6006F09D5E716D6 /* SystemExtensions.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemExtensions.framework; path = System/Library/Frameworks/SystemExtensions.framework; sourceTree = SDKROOT; };
 		B10001 /* BaoLianDengApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaoLianDengApp.swift; sourceTree = "<group>"; };
+		AN100000 /* AnalyticsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsService.swift; sourceTree = "<group>"; };
 		B10002 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		B10003 /* TrafficView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficView.swift; sourceTree = "<group>"; };
 		B10004 /* ConfigEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigEditorView.swift; sourceTree = "<group>"; };
@@ -207,6 +210,7 @@
 		B10099 /* LANSharingSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANSharingSettingsTests.swift; sourceTree = "<group>"; };
 		LP100000 /* LocalProxyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalProxyController.swift; sourceTree = "<group>"; };
 		LP100003 /* EngineModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineModeTests.swift; sourceTree = "<group>"; };
+		AN100002 /* AnalyticsServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsServiceTests.swift; sourceTree = "<group>"; };
 		SP100000 /* SystemProxyConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProxyConfigurator.swift; sourceTree = "<group>"; };
 		SP100003 /* SystemProxyConfiguratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProxyConfiguratorTests.swift; sourceTree = "<group>"; };
 		B10100 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -334,6 +338,7 @@
 			isa = PBXGroup;
 			children = (
 				B10001 /* BaoLianDengApp.swift */,
+				AN100000 /* AnalyticsService.swift */,
 				B10011 /* Info.plist */,
 				B10012 /* BaoLianDeng.entitlements */,
 				B10010 /* Assets.xcassets */,
@@ -448,6 +453,7 @@
 				T10007 /* PerAppProxySettingsTests.swift */,
 				B10099 /* LANSharingSettingsTests.swift */,
 				LP100003 /* EngineModeTests.swift */,
+				AN100002 /* AnalyticsServiceTests.swift */,
 				SP100003 /* SystemProxyConfiguratorTests.swift */,
 				T10021 /* BypassGroupDetectionTests.swift */,
 				T10030 /* ConfigParserTests.swift */,
@@ -633,6 +639,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */,
+				AN100001 /* AnalyticsService.swift in Sources */,
 				45FA5D0C3EA6EE814F43E891 /* HomeView.swift in Sources */,
 				489D78A7BFE5597B42E4C447 /* TrafficView.swift in Sources */,
 				7A21C63533E42559B2CDF4E6 /* ConfigEditorView.swift in Sources */,
@@ -717,6 +724,7 @@
 				T10008 /* PerAppProxySettingsTests.swift in Sources */,
 				LS100005 /* LANSharingSettingsTests.swift in Sources */,
 				LP100004 /* EngineModeTests.swift in Sources */,
+				AN100003 /* AnalyticsServiceTests.swift in Sources */,
 				SP100004 /* SystemProxyConfiguratorTests.swift in Sources */,
 				T10022 /* BypassGroupDetectionTests.swift in Sources */,
 				T10031 /* ConfigParserTests.swift in Sources */,
